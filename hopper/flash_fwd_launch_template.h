@@ -155,6 +155,8 @@ void run_flash_fwd(Flash_fwd_params &params, cudaStream_t stream) {
         params.num_splits_dynamic_ptr,
     };
 
+    // <NT> 针对 可变长度序列 的输入，在batch_size符合条件下，会采用动态split的策略，需要计算 会填充params.num_splits_dynamic_ptr
+    // 在 hopper/flash_api.cpp: mha_fwd函数 里有 bool const use_dynamic_split = is_varlen && params.b <= 992; b是batch_size
     if (Varlen && params.num_splits_dynamic_ptr && !params.skip_scheduler_metadata_computation) {
         prepare_varlen_num_blocks(params, stream, PackGQA, kBlockM, kBlockN, Arch >= 90 /*enable_pdl*/);
         CHECK_CUDA_KERNEL_LAUNCH();

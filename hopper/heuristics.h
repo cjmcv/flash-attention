@@ -16,6 +16,16 @@ inline bool should_pack_gqa(bool varlen_q, int seqlen_q, int qhead_per_khead, in
     return nopack_gqa_efficiency < 0.9 * pack_gqa_efficiency;
 };
 
+// <NT> 启发式寻找split数量，让使用率最大化。例如batch*n_heads=48, 并有108个sm，则splits为2时，用两个sm负责一个batch*n_head
+// (切的是seq长度方向，跟batch和n_heads不是一个维度，split为2，则分成了两块同步进行，batch*n_heads中的一份变成了两份，从一个sm负责变成了两个sm负责)，则使用率为48/(108/2)=0.89.
+// 而splits为3时，3个sm负责一个，使用率为48/(108/3)=48/36=1.33, 超了100%，一个wave处理不完，需要两个wave来处理，所以需要48/36*2=0.667。
+// 总之，公式为 float n_waves = float(total_mblocks * num_splits) / num_SMs;
+//             float eff = n_waves / ceil(n_waves);
+// 另外split如果太多，会导致更多HBM的读写，所以需要权衡，这里启发式搜索的基本准则是使用率能达到85%的最小的splits数量。
+// 此外需要满足KV的每个head能完整填充到L2里，以免影响读取效率，这里假定L2是50MB 
+// (H20的L2是60MB; H200的L2是50MB，L1是256KB/sm; L40的L2是96MB, L1是128KB/sm): https://www.techpowerup.com/gpu-specs/
+// 相关博客：https://zhuanlan.zhihu.com/p/688345042
+
 // Find the number of splits that maximizes the occupancy. For example, if we have
 // batch * n_heads = 48 and we have 108 SMs, having 2 splits (efficiency = 0.89) is
 // better than having 3 splits (efficiency = 0.67). However, we also don't want too many
@@ -42,6 +52,7 @@ inline int num_splits_heuristic(int total_mblocks, int num_SMs, int num_n_blocks
     float max_efficiency = 0.f;
     std::vector<float> efficiency;
     efficiency.reserve(max_splits);
+    // <NT> 计算每个splits数所对应的使用率
     for (int num_splits = 1; num_splits <= max_splits; num_splits++) {
         float n_waves = float(total_mblocks * num_splits) / num_SMs;
         float eff = n_waves / ceil(n_waves);
@@ -49,6 +60,7 @@ inline int num_splits_heuristic(int total_mblocks, int num_SMs, int num_n_blocks
         if (eff > max_efficiency) { max_efficiency = eff; }
         efficiency.push_back(eff);
     }
+    // <NT> 选择满足85%利用率的最小拆分数
     for (int num_splits = 1; num_splits <= max_splits; num_splits++) {
         if (efficiency[num_splits - 1] >= 0.85 * max_efficiency) {
             // printf("num_splits chosen = %d\n", num_splits);

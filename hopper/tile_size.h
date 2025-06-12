@@ -6,6 +6,10 @@
 
 #include <tuple>
 
+// <NT> kBlockM, kBlockN 对应的是一个tile的大小，就block_size
+// MmaPV_is_RS是bool变量，表示是否使用
+// IntraWGOverlap也是bool变量，指示是否在同一个Warp group内进行计算和数据传输的重叠操作
+// MmaPV_is_RS 和 IntraWGOverlap 都用于sm90的mainloop
 // Return {kBlockM, kBlockN, MmaPV_is_RS, IntraWGOverlap}
 constexpr std::tuple<int, int, bool, bool> tile_size_fwd_sm90(
         int headdim, int headdim_v, bool is_causal, bool is_local, int element_size=2,

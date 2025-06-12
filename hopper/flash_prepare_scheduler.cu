@@ -23,11 +23,13 @@ __global__ void prepare_varlen_num_blocks_kernel(
         int* const num_splits_dynamic_ptr,
         bool enable_pdl) {
 
+    // <NT> NumThreadsPerWarp是32，kNumBatchPerWarp则是31，即一个warp负责31个batch
     static constexpr int kNumBatchPerWarp = cutlass::NumThreadsPerWarp - 1;
     static constexpr int kSmemSize = 1;
     // Assume that there's only one block in the grid
     __shared__ int total_blocks_smem[kSmemSize];
 
+    // <NT> 动态网格调度：在处理动态数据或可变长度序列时，launch_dependent_grids() 可以确保在启动下一个计算阶段之前，当前阶段的所有计算都已完成
     // There's only 1 block in the grid, so might as well start launching the main attn kernel
     if (enable_pdl) { cutlass::arch::launch_dependent_grids(); }
 
@@ -38,6 +40,9 @@ __global__ void prepare_varlen_num_blocks_kernel(
 
     int lane = threadIdx.x % cutlass::NumThreadsPerWarp;
 
+    // <NT> 基于Query序列长度计算所需的M块数量
+    // bidb_start是该warp对应的batch维度的起始点，则batch_idx是取出该warp里每个线程对应的batch下标
+    // 
     auto get_num_m_blocks = [&](int bidb_start) {
         int batch_idx = lane + bidb_start;
         int seqlen;
@@ -55,6 +60,7 @@ __global__ void prepare_varlen_num_blocks_kernel(
             ? blockm_divmod.div(seqlen + blockm_divmod.divisor - 1) : 0;
     };
 
+    // <NT> 基于Key序列长度计算所需的N块数量
     auto get_num_n_blocks = [&](int bidb_start) {
         int batch_idx = lane + bidb_start;
         int leftpad_k = batch_idx < num_batch && leftpad_k_ptr != nullptr ? leftpad_k_ptr[batch_idx] : 0;
@@ -82,6 +88,7 @@ __global__ void prepare_varlen_num_blocks_kernel(
             ? blockn_divmod.div(seqlen + blockn_divmod.divisor - 1) : 0;
     };
 
+    // <NT> 1个warp对应31个batch，bidb_start是该warp对应的batch维度的起始点
     int warp_idx = threadIdx.x / cutlass::NumThreadsPerWarp;
     int bidb_start = kNumBatchPerWarp * warp_idx;
     int num_m_blocks = get_num_m_blocks(bidb_start);

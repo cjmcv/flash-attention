@@ -99,6 +99,9 @@ struct CollectiveMainloopFwdSm90 {
         AtomLayoutQK,
         Layout<Shape<_1, Int<kHeadDimV / 256>, _1>>
     >;
+    // <NT> rs_op_selector和rs_op_selector 是用于选择MMA操作的两个工具
+    // rs_op_selector 用于配置第一个操作数（Operand A）存储在reg的场景，即第一个操作数需要频繁更新且不适合存储在共享内存中
+    // rs_op_selector 用于配置第一个操作数（Operand A）存储在smem的场景，即第一个操作数可以存储在共享内存中以提高访问效率的场景
     using TiledMmaPV = decltype(cute::make_tiled_mma(
         std::conditional_t<
             !MmaPV_is_RS,

@@ -626,6 +626,34 @@ mha_fwd_get_scheduler_metadata(
     return tile_count_semaphore;
 }
 
+// <NT> attention推理部分的c++主入口函数调用链路:
+// mha_fwd主入口 
+//  -> 参数填充与判断选择
+//  -> run_mha_fwd 
+//     -> run_mha_fwd_constexpr 
+//        -> run_mha_fwd_ (flash_fwd_launch_template.h)
+//           -> run_flash_fwd (cutlass算子, 对应device层)
+//              -> 定义 AttnKernel (FlashAttnFwdSm90 / FlashAttnFwdSm80)
+//                 -> CollectiveMainloop (CollectiveMainloopFwdSm90 / CollectiveMainloopFwdSm80)
+//                                        -> PipelineTmaAsyncNoCluster
+//                                        -> mma / mma_pv
+//                                        -> load / load_tile 
+//                                        -> load_kv_new / store_kv_new (用于AppendKV)
+//                 -> CollectiveEpilogue
+//                    -> prefetch_tma_descriptors
+//                    -> store / store_tail / store_zero
+//                 -> Scheduler (SchedulerSingleTile / SchedulerPersistent)
+//                                                     => VarlenDynamicPersistentTileScheduler: 针对Varlen
+//                                                     => StaticPersistentTileScheduler: 针对非Varlen，if !Is_causal && !Is_local
+//                                                     => DynamicPersistentTileScheduler: 针对非Varlen, else
+//  -> run_mha_fwd_combine 针对num_splits > 1的情况，合并run_mha_fwd的输出结果
+//
+// AOT Scheduler只针对varlen: 
+// 1) prepare_varlen_num_blocks kernel计算splits，得到 num_splits_dynamic_ptr
+// 2) tile_scheduler中如VarlenDynamicPersistentTileScheduler会基于 num_splits_dynamic_ptr 计算{next_tile_idx, block, bidh, bidb};
+//                      在get_initial_work函数中，由生产者warp调用，取得这些值。
+// 3) 在kernel中，如FlashAttnFwdSm90 (hopper/flash_fwd_kernel_sm90.h) 中的 operator() 里使用。
+// 
 // b: batch_size
 // b_k: batch_size_k
 // s_q: seqlen_q
