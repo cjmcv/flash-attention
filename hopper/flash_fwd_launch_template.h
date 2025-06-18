@@ -35,6 +35,8 @@ void run_flash_fwd(Flash_fwd_params &params, cudaStream_t stream) {
     static constexpr bool FP8_TransposeV = Is_FP8 && !V_colmajor;
     using ArchTag = std::conditional_t<Arch >= 90, cutlass::arch::Sm90, cutlass::arch::Sm80>;
 
+    // <NT> sm90以上的kStages固定为2，MmaPV_is_RS和IntraWGOverlap是sm90以上的专属
+    //      kNWarps和Q_in_regs是sm80专用。
     // Can't use structured binding since it's not compatible with constexpr
     static constexpr std::tuple<int, int, bool, bool> kBlockMN_RS_IntraWGOverlap = tile_size_fwd_sm90(kHeadDim, kHeadDimV, Is_causal, Is_local, sizeof(Element) /*element_size*/, V_colmajor, PagedKVNonTMA, Has_softcap);
     static constexpr std::tuple<int, int, int, int, bool> kBlockMN_kNWarps_Stages_RS = tile_size_fwd_sm8x(Arch == 86 || Arch == 89, kHeadDim, kHeadDimV, Is_causal, Is_local, sizeof(Element) /*element_size*/, PagedKVNonTMA, Varlen && Split, Has_softcap, AppendKV);
@@ -46,6 +48,24 @@ void run_flash_fwd(Flash_fwd_params &params, cudaStream_t stream) {
     static constexpr int kStages = Arch >= 90 ? 2 : std::get<3>(kBlockMN_kNWarps_Stages_RS);
     static constexpr bool Q_in_regs = Arch >= 90 ? false : std::get<4>(kBlockMN_kNWarps_Stages_RS);
 
+    // <NT> TileShape_MNK和TileShape_MNK_PV在mainloop和epilogue都有使用，ClusterShape的NK固定为1，M维度是1或2.
+    // 维度回顾，搜 "q和k维度[seqlen, nheads, nope_dim+rope_dim]","v维度[seqlen, nheads, nope_dim]"
+    // TileShape_MNK   [kBlockM, kBlockN, kHeadDim], 
+    // TileShape_MNK_PV[kBlockM, kHeadDimV, kBlockN], P表示投影操作，V有自己的HeadDimV，与kHeadDim不一定相等。(MLA下kHeadDim比HeadDimV多一个rope_dim)
+    // 
+    // self-attention公式：softmax(q * kt / softmax_scale) * v
+    // 注：mma中的layout定义是 [输出矩阵C的M维度, 输出矩阵C的N维度, AB矩阵被消除的K维度]
+    // 
+    // 1）第一个gemm是q*kt，每个head需要独立计算，nheads单独拿出来，即要求q[seqlen,head_dim]*kt[head_dim,seqlen]=o[seqlen,seqlen]
+    //    q和k的维度会从[seqlen, nheads, head_dim]，都先转为[nheads, seqlen, head_dim]，进而k在计算前需要转置得到[nheads, head_dim, seqlen]
+    //    q*kt => q[nheads, seqlen, head_dim] * kt[nheads, head_dim, seqlen] = o[n_heads, seq_len, seq_len]
+    //    nheads可以单独取出，从[seqlen,seqlen]看gemm布局，layout的M和N对应输出O[seqlen,seqlen], 即都是seqlen，而K是被消掉的head_dim。
+    //    所以这次gemm的TileShape_MNK设置为[kBlockM, kBlockN, kHeadDim]
+    //
+    // 2）q*kt的结果o[nheads, seqlen, seqlen]，会先经过softmax将数值转换为概率分布，不会对其维度有任何影响，得到p，随后与v[seqlen, nheads, head_dimv]做gemm。
+    //    v首先同样会转为[nheads, seqlen, head_dimv]，即p[nheads, seqlen, seqlen]*v[nheads, seqlen, head_dimv]=o2[nheads, seqlen, head_dimv].
+    //    去掉nheads，从[seqlen, head_dimv]分析gemm，可以看到layout的M和N分别对应seqlen和head_dimv，K则是被消掉的seqlen的维度。
+    //    所以这次gemm的TileShape_MNK_PV设置为[kBlockM, kHeadDimV, kBlockN]，而不是[kBlockM, kBlockN, kHeadDimV]
     using TileShape_MNK = cute::Shape<Int<kBlockM>, Int<kBlockN>, Int<kHeadDim>>;
     using TileShape_MNK_PV = cute::Shape<Int<kBlockM>, Int<kHeadDimV>, Int<kBlockN>>;
     using ClusterShape = cute::Shape<Int<ClusterM>, _1, _1>;
@@ -65,6 +85,7 @@ void run_flash_fwd(Flash_fwd_params &params, cudaStream_t stream) {
         >
     >;
     using SchedulerSingleTile = flash::SingleTileScheduler<Varlen, Split, PackGQA, kBlockM>;
+    // <NT> 是否使用PersistentScheduler也是启发式选择, sm90以上的Split为False或者是Varlen，才用PersistentScheduler，否则都用SchedulerSingleTile。
     // If Split then we probably don't have enough work for PersistentScheduler to be useful.
     // However, if Varlen (e.g., during decode where we have max_seqlens), using PersistentScheduler is better
     // since we'll avoid launching a bunch of thread blocks that immediately exit.
@@ -142,6 +163,8 @@ void run_flash_fwd(Flash_fwd_params &params, cudaStream_t stream) {
         params.cu_seqlens_q, params.seqused_q
     };
 
+    // <NT> PackGQA为true时，内存是正常存放，多个qhead对应一个khead，使用索引来对应qhead和kvhead。
+    // 而PackGQA为false时，khead会复制后存放，使qhead和khead一一对应.
     int qhead_per_khead = !PackGQA ? 1 : cutlass::ceil_div(params.h, params.h_k);
     int num_blocks_m = cutlass::ceil_div(params.seqlen_q * qhead_per_khead, get<0>(TileShape_MNK{}));
     num_blocks_m = cutlass::round_up(num_blocks_m, size<0>(ClusterShape{}));
@@ -200,17 +223,24 @@ template<int Arch, typename T, int kHeadDim, int kHeadDimV, bool Split, bool Pag
 void run_mha_fwd_(Flash_fwd_params &params, cudaStream_t stream) {
     static_assert(sizeof(T) == 2 || sizeof(T) == 1, "Only 16bit and 8bit are supported");
     static constexpr bool Is_FP8 = cute::is_same_v<T, cutlass::float_e4m3_t> || cute::is_same_v<T, cutlass::float_e5m2_t>;
+    // 如果是fp8，输出类型取bf16；如果是fp16或bf16，则输出类型对应取fp16或bf16.
     using T_out = std::conditional_t<!Is_FP8, T, cutlass::bfloat16_t>;
     CAUSAL_LOCAL_SWITCH(params.is_causal, params.is_local, Is_causal, Is_local, [&] {
+        // <NT> VCOLMAJOR_SWITCH里面一般未定义FLASHATTENTION_ENABLE_VCOLMAJOR，
+        // 除非额外设置环境变量 export FLASH_ATTENTION_ENABLE_VCOLMAJOR=TRUE，
+        // 不然走上半段，即会写死CONST_NAME = false，所以V_colmajor_一直为false。
         VCOLMAJOR_SWITCH(params.v_dim_stride != 1, V_colmajor_, [&] {
             static constexpr bool V_colmajor = V_colmajor_ && sizeof(T) == 1;
             VARLEN_SWITCH(params.cu_seqlens_q || params.cu_seqlens_k || params.seqused_q || params.seqused_k || params.leftpad_k, Varlen, [&] {
                 // Only needed here to decide if we should use cluster
+                // <NT> Arch为sm8x的，kBlockM被写死为128！
+                // 使能cluster的限制条件很多，包含Enable_cluster和下面的Use_cluster，使用cluster时，ClusterM也仅仅为2. 其他维度的是1，在最外层输入的时候已经写死。
                 static constexpr int kBlockM = Arch >= 90 ? std::get<0>(tile_size_fwd_sm90(kHeadDim, kHeadDimV, Is_causal, Is_local, sizeof(T) /*element_size*/, V_colmajor, PagedKVNonTMA, Has_softcap)) : 128;
-
                 static constexpr bool Enable_cluster = Arch == 90 && (sizeof(T) == 2 ? (kHeadDim >= 128) : (kHeadDim == 192)) && !Is_causal && !Is_local && !Split && !PagedKVNonTMA && !Varlen;
+                // <NT> qv目前只在mla中有使用，表示q_nope. q存放的是q_rope, mha/gqa/mqa中的q也等价于q_rope, 带有位置编码。
                 BOOL_SWITCH(params.qv_ptr, HasQV_, [&] {
                     static constexpr bool HasQv = HasQV_ && Arch == 90 && !Is_FP8 && kHeadDim == 64 && kHeadDimV >= 256;
+                    // <NT> sglang中k_new_和v_new_为空，AppendKV会一直为false
                     APPENDKV_SWITCH(params.knew_ptr, AppendKV, [&] {
                         // Only use Cluster if number of tiles along seqlen_q is even and not varlen
                         CLUSTER_SWITCH(cutlass::ceil_div(params.seqlen_q * (!PackGQA ? 1 : params.h / params.h_k), kBlockM) % 2 == 0, Use_cluster, [&] {

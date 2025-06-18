@@ -35,6 +35,8 @@ struct CollectiveMainloopFwdSm90 {
 
     static constexpr int kStages = Stages;
     using ClusterShape = ClusterShape_;
+    // <NT> TileShape_MNK用于q*kt=o1, TileShape_MNK_PV用于softmax(o1)*V
+    // <NT-TODO?> TileShape_MNK_QV用于qv*kt (所以布局等同于TileShape_MNK，mla的q_nope专用???)
     using TileShape_MNK = TileShape_MNK_;
     using TileShape_MNK_PV = Shape<decltype(get<0>(TileShape_MNK{})), Int<kHeadDimV>, decltype(get<1>(TileShape_MNK{}))>;
     using TileShape_MNK_QV = Shape<decltype(get<0>(TileShape_MNK{})), decltype(get<1>(TileShape_MNK{})), Int<kHeadDimV>>;
@@ -57,6 +59,8 @@ struct CollectiveMainloopFwdSm90 {
     static constexpr bool Use_TMA_KV = !PagedKVNonTMA;
     static_assert(Use_TMA_KV || CUTE_STATIC_V(size(ClusterShape{})) == 1, "If not using TMA for KV, ClusterShape must be 1");
     static_assert(Use_TMA_KV || !V_colmajor, "If not using TMA for KV, V_colmajor is not supported");
+    // <NT> SameHeadDim指qkv的head_dim都相同(mha/gqa/mqa)
+    //      kHeadDimV大于256会充当一个分界点，会涉及到很多资源分配方案，是否应改成一个tuning参数？
     static constexpr bool SameHeadDim = get<2>(TileShape_MNK{}) == kHeadDimV;
     static constexpr bool LargeHeadDimV = kHeadDimV > 256;
 
@@ -101,7 +105,7 @@ struct CollectiveMainloopFwdSm90 {
     >;
     // <NT> rs_op_selector和rs_op_selector 是用于选择MMA操作的两个工具
     // rs_op_selector 用于配置第一个操作数（Operand A）存储在reg的场景，即第一个操作数需要频繁更新且不适合存储在共享内存中
-    // rs_op_selector 用于配置第一个操作数（Operand A）存储在smem的场景，即第一个操作数可以存储在共享内存中以提高访问效率的场景
+    // ss_op_selector 用于配置第一个操作数（Operand A）存储在smem的场景，即第一个操作数可以存储在共享内存中以提高访问效率的场景
     using TiledMmaPV = decltype(cute::make_tiled_mma(
         std::conditional_t<
             !MmaPV_is_RS,
@@ -277,6 +281,7 @@ struct CollectiveMainloopFwdSm90 {
         ClusterShape{}));
     using TMA_Qv = std::conditional_t<HasQv, TMA_Qv_, std::nullptr_t>;
 
+    // size(SmemLayoutQ{})得到的是元素个数，sizeof_bits_v<Element>得到每个元素占的bits，bits转Bytes需除以8，TmaTransactionBytes表示一次tma传输的字节数。
     // Set the bytes transferred in this TMA transaction (may involve multiple issues)
     static constexpr uint32_t TmaTransactionBytesQ = static_cast<uint32_t>(size(SmemLayoutQ{}) * cutlass::sizeof_bits_v<Element> / 8);
     static constexpr uint32_t TmaTransactionBytesK = static_cast<uint32_t>(size(take<0, 2>(SmemLayoutK{})) * cutlass::sizeof_bits_v<Element> / 8);

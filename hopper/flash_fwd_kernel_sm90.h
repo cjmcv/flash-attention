@@ -71,6 +71,11 @@ public:
     using TileSchedulerArguments = typename flash::TileSchedulerArguments;
     using TileSchedulerParams = typename TileScheduler::Params;
 
+    // <NT> 一个warpgroup用于load，其他warpgroup用于mma.
+    // 一个group有4个warp, NumThreadsPerWarpGroup是128, TiledMmaPV在mainloop中定义，用于softmax(q*kt)后与v做gemm的mma块。
+    // 一个block的线程数 MaxThreadsPerBlock=(NumLoadWarpGroups+NumMmaWarpGroups)*128,
+    // NumMmaWarpGroups会取1/2/3，所以最多一个block是4*128=512个线程。
+    // get_block_shape 将会是dim3(MaxThreadsPerBlock, 1, 1)， 而 get_grid_shape 会由TileScheduler提供。   
     static constexpr uint32_t NumLoadWarpGroups = 1;
     static constexpr uint32_t NumMmaWarpGroups = CUTE_STATIC_V(size(TiledMmaPV{})) / cutlass::NumThreadsPerWarpGroup;
     static constexpr uint32_t MaxThreadsPerBlock = CUTE_STATIC_V(size(TiledMmaPV{})) + (NumLoadWarpGroups * cutlass::NumThreadsPerWarpGroup);
@@ -169,6 +174,7 @@ public:
         return TileScheduler::get_grid_shape(params.scheduler, params.hw_info.sm_count);
     }
 
+    // <NT> 一维block
     static dim3
     get_block_shape() {
         return dim3(MaxThreadsPerBlock, 1, 1);
@@ -182,6 +188,7 @@ public:
         static constexpr int MmaThreadOffset = NumLoadWarpGroups * cutlass::NumThreadsPerWarpGroup;
         static constexpr int kBlockM = get<0>(TileShape_MNK_PV{});
 
+        // MainloopPipelineVt用于v转置的情况，MainloopPipelineKVNew用于AppendKV的情况，这两种在sglang中均未使用
         using MainloopPipelineK = typename CollectiveMainloop::MainloopPipelineK;
         using MainloopPipelineV = typename CollectiveMainloop::MainloopPipelineV;
         using MainloopPipelineVt = typename CollectiveMainloop::MainloopPipelineVt;
@@ -194,6 +201,8 @@ public:
 
         SharedStorage& shared_storage = *reinterpret_cast<SharedStorage*>(smem_buf);
 
+        // <NT> 用elect_one_sync从warp里选举出一个线程，lane_predicate为true表示被选中。
+        // 并使用第一个warp的其中一个线程去启动tma预取描述符和做barrier的初始化。
         int const lane_predicate = cute::elect_one_sync();
         int const warp_idx = cutlass::canonical_warp_idx_sync();
 
@@ -215,6 +224,9 @@ public:
             shared_storage.pipelines.barrier_O.init(size(ClusterShape{}) * (Use_TMA_O ? 1 : NumMmaThreads) /*numThreads*/);
         }
 
+        // <NT> 一个warp group里0号warp为生产者，其他warp为消费者。
+        // 一个warp里的第一个线程充当leader，如果HeadDimV大于256时，num_consumers为1个warpgroup的线程数，否则设置为mma所属的所有warpgroup的线程数。为什么？<NT-TODO>
+        // num_consumers主要作用于pipeline的barrier，LargeHeadDimV定义为HeadDimV大于256。
         // We're counting on pipeline_k to call cutlass::arch::fence_barrier_init();
         PipelineParamsK pipeline_params_k;
         pipeline_params_k.role = warp_group_idx == 0
@@ -248,6 +260,10 @@ public:
         // MainloopPipelineV pipeline_v(shared_storage.pipelines.pipeline_v, pipeline_params_v, ClusterShape{});
         MainloopPipelineV pipeline_v = [&] {
             if constexpr (!Transpose_V) {
+                // <NT> 分支走这里，使用TMA只多一个ClusterShape的参数，进PipelineTmaAsync，
+                // 不使用TMA则用cp.async，是sm80提出的，没有cluster概念，走的是PipelineAsync
+                // 构造函数看include/cutlass/pipeline/sm90_pipeline.hpp#327#PipelineTmaAsync
+                //          include/cutlass/pipeline/sm90_pipeline.hpp#1054#PipelineAsync
                 static_assert(is_same_v<PipelineParamsK, PipelineParamsV>);
                 if constexpr (Use_TMA_KV) {
                     return MainloopPipelineV(shared_storage.pipelines.pipeline_v, pipeline_params_vt, ClusterShape{});
@@ -264,6 +280,8 @@ public:
                 return MainloopPipelineV(shared_storage.pipelines.pipeline_v, pipeline_params_v);
             }
         }();
+        // <NT> pipeline_vt仅用于Transpose_V的情况，数据会先经过pipeline_vt，然后再从pipeline_vt转到pipeline_v
+        // （在sglang中没有Transpose_V）。
         // If we need to transpose V (e.g. FP8 and V is row-major), we use pipeline_vt for the TMA, then
         // the producer WG will read from pipeline_vt and write to pipeline_v.
         // If we don't need to transpose V, we use pipeline_v for the TMA, and pipeline_vt won't be used.
@@ -279,6 +297,7 @@ public:
             }
         }();
 
+        // <NT> 针对AppendKV，在sglang中未使用
         PipelineParamsKVNew pipeline_params_kv_new;
         pipeline_params_kv_new.role = warp_group_idx == 0
             ? MainloopPipelineKVNew::ThreadCategory::Producer

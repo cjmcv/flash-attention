@@ -6,10 +6,16 @@
 
 #include <vector>
 
+// <NT> 启发式判断是否使用pack_gqa，与之相对应的是nopack_gqa。
+// PackGQA 是 FlashAttention 中对 GQA 的一种优化实现，通过更紧凑的内存布局和索引机制，减少了 KV 缓存的大小，提高了计算效率。
+// 
+// 启发式经验：PackGQA 的速度稍慢一些，但如果seqlen_q较小，或者不是 kBlockM 的倍数附近时，它可能会有所帮助。
+// 所以nopack_gqa_efficiency大于等于0.9 * pack_gqa_efficiency时就会用nopack_gqa。
 inline bool should_pack_gqa(bool varlen_q, int seqlen_q, int qhead_per_khead, int blockM) {
     // If varlen, we don't actually know seqlen_q but only max_seqlen_q.
     if (varlen_q) return true;
     // Heuristic: PackGQA is a bit slower but can help if seqlen_q is small or not near a multiple of kBlockM
+    // <NT> a向上取整到b的倍数，如a=11，b=3，(11+3-1)/3*3=13/3*3=12.
     auto round_up = [](int a, int b) { return (a + b - 1) / b * b; };
     float nopack_gqa_efficiency = float(seqlen_q) / float(round_up(seqlen_q, blockM));
     float pack_gqa_efficiency = float(seqlen_q * qhead_per_khead) / float(round_up(seqlen_q * qhead_per_khead, blockM));
@@ -46,6 +52,9 @@ inline int num_splits_heuristic(int total_mblocks, int num_SMs, int num_n_blocks
             return 1;
         }
     }
+    // <NT> qwen2模型的head_dim是128的，deepseekv3里的标准的也是128，其中qk还会拼接上rope_dim=64; 
+    //      deepseek v3中q_lora_rank=1536， kv_lora_rank=512，即压缩后的q和kv的隐向量维度，此时需要split。
+    //                 https://zhuanlan.zhihu.com/p/25449691772
     // If num_n_blocks is too small, use 1 split. For example, we never split for hdim = 128 and seqlen_k = 512.
     if (num_n_blocks <= 4) { return 1; }
     max_splits = std::min({max_splits, num_SMs, num_n_blocks});

@@ -244,6 +244,14 @@ void set_params_dgrad(Flash_bwd_params &params,
     params.deterministic = deterministic;
 }
 
+// <NT> 根据d和dv对run_mha_fwd_函数的kHeadDim和kHeadDimV进行实例化，
+// 原则是params.d<=64的kHeadDim都为64，65~96=>96，97~128=>128，129~192=>192，193~256=>256. 超出256的不支持。
+// 非fp8:
+//  sm80下kHeadDimV取kHeadDim相同的值。
+//  sm90下部分特殊处理，kHeadDim取64时params.dv>256=>512, 64~256=>256, kHeadDim取192时，如果params.dv <= 128，则kHeadDimV取128(专门兼容deepseek，192-128=64是rope部分)
+// fp8:
+//  不支持sm80/sm89
+//  只支持sm90，大部分情况kHeadDimV取kHeadDim相同的值，特例是kHeadDim取192时，如果params.dv<=128，则kHeadDimV取128(同上)
 template <int Arch, int Split, bool PagedKVNonTMA, bool PackGQA, bool Has_softcap>
 void run_mha_fwd_constexpr(Flash_fwd_params &params, cudaStream_t stream) {
     if (!params.is_e4m3) {
@@ -353,7 +361,10 @@ void run_mha_fwd(Flash_fwd_params &params, cudaStream_t stream) {
     TORCH_CHECK(params.num_splits >= 1);
     ARCH_SWITCH(params.arch, Arch, [&] {
         SPLIT_SWITCH(params.num_splits > 1, Split, [&] {
+            // <NT> 如果使用paged的kvcache，但又由get_pagedkv_tma启发式地选择不使用tma搬运kvcache，
+            // 则将模式设置为 PagedKVNonTMA=true，此时kvcache的搬运会使用普通的cp.async?
             PAGEDKV_SWITCH(params.page_table && !params.pagedkv_tma, PagedKVNonTMA, [&] {
+                // <NT> pack_gqa对应 get_pack_gqa / should_pack_gqa 函数，
                 PACKGQA_SWITCH(params.pack_gqa, PackGQA_, [&] {
                     // Always enable PackGQA for Sm8x or PagedKVNonTMA or Split to reduce compilation
                     static constexpr bool PackGQA = PackGQA_ || Arch < 90 || PagedKVNonTMA || Split;
@@ -402,9 +413,12 @@ inline bool get_pagedkv_tma(Flash_fwd_params const& params) {
     int const kBlockN = std::get<1>(kBlockMN_kernel_args_sm90);
     // Heuristic: when seqlen_q <= kBlockM, we're not compute bound, and somehow using TMA is slower,
     // at least for MLA.
+    // <NT> 启发式方法：当seqlen_q <= kBlockM时，并不处于compute bound状态，此时使用 TMA 会更慢，至少在 MLA 中是这样。
     return params.page_size % kBlockN == 0 && params.seqlen_q * (params.h / params.h_k) > kBlockM;
 }
 
+// <NT> 对于sm8x 或 PagedKVNonTMA 或 Split 都会采用PackGQA，以减少编译时间和二进制文件大小。
+//      否则则启发式选择是否使用pack_gqa的方案
 inline bool get_pack_gqa(Flash_fwd_params const& params) {
     // Always enable PackGQA for Sm8x or PagedKVNonTMA or Split to reduce compilation and binary size.
     // Has little effect on speed.
@@ -421,6 +435,7 @@ inline bool get_pack_gqa(Flash_fwd_params const& params) {
     #endif
 }
 
+// <NT> 启发式选择split数量
 inline int get_num_splits(Flash_fwd_params const& params) {
     #ifdef FLASHATTENTION_DISABLE_SPLIT
     return 1;
@@ -447,6 +462,7 @@ inline int get_num_splits(Flash_fwd_params const& params) {
     // If varlen, we use dynamic split, so this heuristic just needs to get an upper bound on num_splits.
     // We assume the case where there's 1 long sequence and the rest are short, i.e. pretending
     // that batch = 1.
+    // <NT> 在varlen下，使用dynamic split，所以这里的启发式搜索num_splits只用于获得最高限值。
     int total_mblocks = (params.num_splits_dynamic_ptr ? 1 : params.b) * params.h_k * num_m_blocks;
     return num_splits_heuristic(total_mblocks, params.num_sm, num_n_blocks, num_m_blocks, size_one_kv_head, params.is_causal || params.is_local, 128);
     #endif
@@ -737,6 +753,7 @@ mha_fwd(at::Tensor q,   // (b, s_q, h, d) or (total_q, h, d) if there is cu_seql
         TORCH_CHECK(cu_seqlens_q.dtype() == torch::kInt32, "cu_seqlens_q must have dtype torch.int32");
         TORCH_CHECK(max_seqlen_q_.has_value(), "max_seqlen_q must be provided if cu_seqlens_q is provided");
     }
+    // <NT> 在flash_attn_varlen_func接口中使用，此时不会有kvcache和page_table输入
     at::Tensor cu_seqlens_k;
     bool const is_varlen_k = cu_seqlens_k_.has_value();
     if (is_varlen_k) {
@@ -818,6 +835,7 @@ mha_fwd(at::Tensor q,   // (b, s_q, h, d) or (total_q, h, d) if there is cu_seql
         CHECK_SHAPE(page_table, batch_size_k, max_num_pages_per_seq);
     }
 
+    // <NT> seqused_q_ / seqused_k_ / leftpad_k_这三个参数只出现在flash_attn_varlen_func接口里，且在sglang中这三个参数都为空。
     if (seqused_q_.has_value()){
         auto seqused_q = seqused_q_.value();
         TORCH_CHECK(seqused_q.dtype() == torch::kInt32, "seqused_q must have dtype int32");
@@ -844,11 +862,13 @@ mha_fwd(at::Tensor q,   // (b, s_q, h, d) or (total_q, h, d) if there is cu_seql
         TORCH_CHECK(!is_varlen, "This flash attention build does not support varlen.");
     #endif
 
+    // <NT> 往128位对齐, fp8需要16个, fp16/bf16需要8个
     int const alignment = q_type == torch::kFloat8_e4m3fn ? 16 : 8;
     TORCH_CHECK(head_size % alignment == 0, "head_size should be a multiple of " + std::to_string(alignment));
     TORCH_CHECK(head_size_v % alignment == 0, "head_size_v should be a multiple of " + std::to_string(alignment));
 
     auto opts = q.options();
+    // <NT> (q为fp8，out为bf16)，(q为fp16, out为fp16)；（q为bf16，out为bf16)
     auto out_type = q_type == at::ScalarType::Float8_e4m3fn ? at::ScalarType::BFloat16 : q_type;
     at::Tensor out;
     if (out_.has_value()) {
@@ -862,6 +882,7 @@ mha_fwd(at::Tensor q,   // (b, s_q, h, d) or (total_q, h, d) if there is cu_seql
             CHECK_SHAPE(out, total_q, num_heads, head_size_v);
         }
     } else {
+        // <NT> varlen下会使用total_q来代替batch_size和seqlen_q，只有一个batch。
         out = !is_varlen_q
             ? torch::empty({batch_size, seqlen_q, num_heads, head_size_v}, opts.dtype(out_type))
             : torch::empty({total_q, num_heads, head_size_v}, opts.dtype(out_type));
@@ -881,6 +902,7 @@ mha_fwd(at::Tensor q,   // (b, s_q, h, d) or (total_q, h, d) if there is cu_seql
     if (!is_varlen_q) {
         softmax_lse = torch::empty({batch_size, num_heads, seqlen_q}, opts.dtype(at::kFloat));
     } else {
+        // <NT> varlen下同样会使用total_q来代替batch_size和seqlen_q
         softmax_lse = torch::empty({num_heads, total_q}, opts.dtype(at::kFloat));
     }
 
@@ -907,6 +929,7 @@ mha_fwd(at::Tensor q,   // (b, s_q, h, d) or (total_q, h, d) if there is cu_seql
     params.total_q = total_q;
     params.total_k = total_k;
     params.b_k = batch_size_k;
+    // <NT> qk的head_dim可能会包含rope部分，不一定和v的相等
     params.dv = head_size_v;
     params.dv_rounded = head_size_v_rounded;
     if (leftpad_k_.has_value()) {  // This needs to be set before get_pagedkv_tma
@@ -919,6 +942,7 @@ mha_fwd(at::Tensor q,   // (b, s_q, h, d) or (total_q, h, d) if there is cu_seql
     params.page_size = page_size;
     params.num_pages = num_pages;
 
+    // <NT> 在sglang的调用中，k_new_和v_new_一直为空，即结果会直接inplace修改到kvcache里。
     if (k_new_.has_value()) {  // This needs to be set before get_pagedkv_tma
         at::Tensor k_new, v_new;
         TORCH_CHECK(v_new_.has_value(), "If k_new is supplied, v_new must also be passed in");
@@ -967,16 +991,26 @@ mha_fwd(at::Tensor q,   // (b, s_q, h, d) or (total_q, h, d) if there is cu_seql
         }
     }
 
+    // <NT> params.b是batch_size. 如果batch-size超过992，就算是标记为is_varlen，也不会做动态split。
+    // 此时会use_dynamic_split为false，num_splits_dynamic_ptr为nullptr。
+    // 注意与num_splits区分开，num_splits是静态参数，num_splits_dynamic_ptr是动态参数，二者目标一致，都是为了提高计算效率。
+    // 具体使用可以看tile_scheduler.cpp: StaticPersistentTileScheduler和DynamicPersistentTileScheduler使用num_splits，
+    // SingleTileScheduler和VarlenDynamicPersistentTileScheduler中主要使用了num_splits_dynamic_ptr，num_splits充当辅助. 
+    //
     // 992 = 32 * 31 is the max supported batch in prepare_varlen_num_blocks kernel
     bool const use_dynamic_split = is_varlen && params.b <= 992;
     // Temporarily set num_splits_dynamic_ptr to 1 since get_num_splits checks it
     params.num_splits_dynamic_ptr = !use_dynamic_split ? nullptr : reinterpret_cast<int*>(1);
 
+    // <NT> 针对paged的kvcache，是否使用tma进行数据搬运
     params.pagedkv_tma = get_pagedkv_tma(params);
+    // <NT> get_num_split会进行启发式搜索，根据输入的批量大小、序列长度、头数等信息预先计算最优的拆分数量。
     params.num_splits = num_splits <= 0 ? get_num_splits(params) : num_splits;
+    // <NT> 判断是否启用PackGQA
     // Always enable PackGQA for Split, and get_pack_gqa requires params.num_splits to decide
     params.pack_gqa = pack_gqa_.has_value() ? pack_gqa_.value() : get_pack_gqa(params);
 
+    // <NT> 针对num_splits_dynamic，为了确保不同计算tile之间的正确执行顺序和资源分配，需要使用信号量进行同步和资源管理。
     // This needs to be set after get_num_splits
     at::Tensor tile_count_semaphore;  // Contains the semaphore and optionally num_splits_dynamic
     // We don't use the persistent scheduler if Split and not Varlen
@@ -1003,6 +1037,9 @@ mha_fwd(at::Tensor q,   // (b, s_q, h, d) or (total_q, h, d) if there is cu_seql
         params.num_splits_dynamic_ptr = use_dynamic_split ? tile_count_semaphore.data_ptr<int>() + 1 : nullptr;
     }
 
+    // <NT> 正常的MHA,GQA,MQA中的q和k都是rope的，即带有旋转位置编码。
+    // 而MLA中会区分rope和nope，则此时q会填入q_rope部分，qv会填入q_nope部分。
+    // rotary_cos_/rotary_sin_只会应用的rope部分(q和k都是rope的)，q_nope则不会应用(即q_v_)。
     if (q_v_.has_value()) {
         TORCH_CHECK(head_size <= 64, "q_v is only supported for head_size <= 64");
         TORCH_CHECK(q_type == at::ScalarType::Half || q_type == at::ScalarType::BFloat16,
@@ -1026,6 +1063,8 @@ mha_fwd(at::Tensor q,   // (b, s_q, h, d) or (total_q, h, d) if there is cu_seql
         }
     }
 
+    // <NT> sglang中rotary_cos_/rotary_sin_/seqlens_rotary都一直为空。
+    // 查看sglang/srt/models/deepseek_v2.py，rotary_emb在会attention之外进行。
     if (rotary_cos_.has_value()) {
         TORCH_CHECK(k_new_.has_value(), "If rotary cos/sin are provided, new key / value to be appended to KV cache must also be provided");
         auto rotary_cos = rotary_cos_.value();
@@ -1059,6 +1098,7 @@ mha_fwd(at::Tensor q,   // (b, s_q, h, d) or (total_q, h, d) if there is cu_seql
         params.rotary_dim = 0;
     }
 
+    // <NT> sglang中 kv_batch_idx_ 一直为空。
     if (kv_batch_idx_.has_value()) {
         auto kv_batch_idx = kv_batch_idx_.value();
         CHECK_DEVICE(kv_batch_idx); CHECK_CONTIGUOUS(kv_batch_idx);
@@ -1089,6 +1129,7 @@ mha_fwd(at::Tensor q,   // (b, s_q, h, d) or (total_q, h, d) if there is cu_seql
         params.lseaccum_head_stride = softmax_lse_accum.stride(-2);
     }
 
+    // <NT> 注意q_type为fp8时，q_descale也不一定会存在，有可能此时的fp8不属于量化类型。
     if (q_type == at::ScalarType::Float8_e4m3fn) {
         if (q_descale_.has_value()) {
             auto q_descale = q_descale_.value();

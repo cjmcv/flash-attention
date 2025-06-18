@@ -580,7 +580,7 @@ def flash_attn_func(
 # <NT> flash_attn_varlen_func是支持变长的api，多用在seqlen不确定的prefill阶段，同时也不需要输入kvcache。
 #      flash_attn_with_kvcache是定长的api，多用在固定输入1token的decode阶段，计算需要带上kvcache。
 
-# <NT> 支持varlen的接口，必填参数多了 cu_seqlens_q / cu_seqlens_k / max_seqlen_q / max_seqlen_k, k_cache和v_cache改成了k和v
+# <NT> 支持varlen的接口，必填参数多了 cu_seqlens_k / max_seqlen_k (这两个参数会同时用于k和v), 不带k_cache和v_cache改成了k和v.
 def flash_attn_varlen_func(
     q,
     k,
@@ -734,12 +734,12 @@ def flash_attn_with_kvcache(
     Note: Does not support backward pass.
 
     Arguments:
-    <NT> q和k的是headdim, v的是headdim_v, 二者不一定相同, q和k的headdim可能会包含有rope_dim。
+    <NT> q和k的是headdim, v的是headdim_v, 二者不一定相同, mla下q和k的headdim比headdim_v多一个rope_dim。
          q的是nheads, k和v的是nheads_k, MHA时二者相同, GQA/MQA中, k和v的nheads_k会比q的要少。
         在deepseekv3中, 在普通模式下MHA, q和k维度[seqlen, nheads, nope_dim+rope_dim], 
                                        v维度[seqlen, nheads, nope_dim].
-                      权重吸收模式下MQA, q维度[seqlen, nheads, nope_dim+rope_dim], 
-                                       k维度[seqlen, 1, nope_dim+rope_dim], 
+                      权重吸收模式下MQA, q维度[seqlen, nheads, latent_dim+rope_dim], 
+                                       k维度[seqlen, 1, latent_dim+rope_dim], 
                                        v维度[seqlen, 1, latent_dim].
         q: (batch_size, seqlen, nheads, headdim)
         k_cache: (batch_size_cache, seqlen_cache, nheads_k, headdim) if there's no page_table,
@@ -747,8 +747,8 @@ def flash_attn_with_kvcache(
             page_block_size must be a multiple of 256.
         v_cache: (batch_size_cache, seqlen_cache, nheads_k, headdim_v) if there's no page_table,
             or (num_blocks, page_block_size, nheads_k, headdim_v) if there's a page_table (i.e. paged KV cache)
-    <NT> 如果k和v参数为空, 计算结果会inplace更新到k_cache/v_cache。目前(20250612)在sglang里使用, 
-        无论调用 flash_attn_with_kvcache还是flash_attn_varlen_func, k和v参数都为空, 即会inplace更新cache。
+    <NT> 如果k和v参数为空, 计算结果会inplace更新到k_cache/v_cache。目前(20250612)在sglang里使用, k和v均为空, 对应k_new和v_new, 即会inplace更新cache。
+        而flash_attn_varlen_func中没有k_cache和v_cache, 只有k和v, 因为该接口主要针对prefill里没有kvcache的阶段(所以也没有page_table),可以动态调整输入长度.
         (python/sglang/srt/layers/attention/flashattention_backend.py 与 sgl-kernel/python/sgl_kernel/flash_attn.py)
         如果k和v不为空, 则计算后会直接将k和v分别拼接到k_cache和v_cache后面。
         k [optional]: (batch_size, seqlen_new, nheads_k, headdim). If not None, we concatenate
@@ -768,14 +768,19 @@ def flash_attn_with_kvcache(
             If the indices are not distinct, and k and v are provided, the values updated in the cache
                  might come from any of the duplicate indices.
         cache_leftpad: (batch_size,), dtype torch.int32. The index that the KV cache starts. If None, assume 0.
-    <NT> 如果是paged KV cache, 需要提供page_table
+    <NT> 如果是paged KV cache, 需要提供page_table, sglang中调用flash_attn_with_kvcache都会提供page_table.
         page_table [optional]: (batch_size, max_num_blocks_per_seq), dtype torch.int32. 
+    <NT> 直接填入attention层中的layer.scaling, 是模型文件的固定参数.
         softmax_scale: float. The scaling of QK^T before applying softmax.
             Default to 1 / sqrt(headdim).
+    <NT> k_descale / v_descale, 用于fp8的kvcache, 且有对应的量化算法时, 需要填入。
+         q_descale, 在sglang的调用中一直为None.
+    <NT> cu_seqlens_q: 累积序列长度，即是前缀和，每个元素表示当前序列及其之前所有序列的总长度. 
+         flash_attn_with_kvcache接口没有参数cu_seqlens_k, 只有cu_seqlens_k_new。
     <NT> 是否需要因果掩码
         causal: bool. Whether to apply causal attention mask (e.g., for auto-regressive modeling).
         window_size: (left, right). If not (-1, -1), implements sliding window local attention.
-    <NT> softcap 平滑地将分数限制在一个固定范围内，避免分数变得过大。
+    <NT> softcap 平滑地将分数限制在一个固定范围内, 避免分数变得过大。sglang中直接赋值layer.logit_cap, 是模型文件固定参数。
          1) 缩放分数: 将注意力分数除以一个阈值(softcap)。
          2) 应用 tanh 函数：将缩放后的分数通过 tanh 函数，将其限制在 (-1, 1) 范围内。
          3) 重新缩放: 将 tanh 的输出乘以阈值，使最终分数在 (-softcap, softcap)

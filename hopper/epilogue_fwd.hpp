@@ -33,6 +33,7 @@ struct CollectiveEpilogueFwd {
     static constexpr bool Varlen = Varlen_;
     static constexpr bool PackGQA = PackGQA_;
     static constexpr bool Split = Split_;
+    // <NT> Split为false 或 Varlen为true，则Use_smem为true
     static constexpr bool Use_smem = !(Split && !Varlen);
     static constexpr bool Use_TMA_O = ArchTag::kMinComputeCapability >= 90 && !Varlen && !Split && !PackGQA;
 
@@ -89,6 +90,8 @@ struct CollectiveEpilogueFwd {
     using ShapeLSEPacked = std::conditional_t<!PackGQA, cute::Shape<int32_t, int32_t, int32_t, int32_t>, cute::Shape<cute::Shape<int32_t, int32_t>, int32_t, int32_t, int32_t>>;
     using StrideLSEPacked = std::conditional_t<!PackGQA, StrideLSE, cute::Stride<cute::Stride<int64_t, _1>, int64_t, int64_t, int64_t>>;
 
+    // <NT> CopyOpR2S是CopyOperation，里面选用了sm90_get_smem_store_op_for_accumulator，意思是选择可用的最大向量化smem存储原子操作。
+    // 标记从rmem拷贝到smem，用于构建Copy_Atom，后面将会与TiledMmaPV组成TiledCopy进行拷贝操作，负责O矩阵从rmem到smem的拷贝。
     using CopyOpR2S = std::conditional_t<
         ArchTag::kMinComputeCapability >= 90,
         // cute::SM90_U32x4_STSM_N if Element size is 2 bytes (fp16, bf16)
@@ -247,6 +250,8 @@ struct CollectiveEpilogueFwd {
         // cp.async if we need).
         flash::named_barrier_sync(NumEpilogueThreads, cutlass::arch::ReservedNamedBarriers::EpilogueBarrier);
 
+        // <NT> 基于 Copy_Atom(SmemCopyAtomO)和TiledMmaPV，用TiledCopy完成rmem->smem的拷贝。
+        // SmemCopyAtomO中的CopyOpR2S标记了需要从rmem拷贝到smem。
         // Step 1: Write O from rmem -> smem
         if constexpr (Use_smem) {
             auto smem_tiled_copy_O = make_tiled_copy_C(SmemCopyAtomO{}, tiled_mma);
@@ -306,6 +311,7 @@ struct CollectiveEpilogueFwd {
             }
         }
 
+        // <NT> 基于TMA_O tma_store_O进行，其在初始化时就已经启动了TMA预取描述符，这里用来基于tma将输出矩阵O从smem转到gmem。
         // Step 3: Write O from smem -> gmem
         if constexpr (Use_TMA_O) {
             Tensor mO = params.tma_store_O.get_tma_tensor(params.shape_O)(_, _, bidh, bidb, split_idx);

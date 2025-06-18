@@ -7,9 +7,9 @@
 #include <tuple>
 
 // <NT> kBlockM, kBlockN 对应的是一个tile的大小，就block_size
-// MmaPV_is_RS是bool变量，表示是否使用
-// IntraWGOverlap也是bool变量，指示是否在同一个Warp group内进行计算和数据传输的重叠操作
-// MmaPV_is_RS 和 IntraWGOverlap 都用于sm90的mainloop
+// MmaPV_is_RS是bool变量，会与rs_op_selector/ss_op_selector关联，rs表示第一个操作数放在reg适合频繁访问，ss表示第一个操作数放在smem。数据较大时放ss
+// IntraWGOverlap也是bool变量，指示是否在同一个Warp group内进行计算和数据传输的重叠操作。
+// MmaPV_is_RS 和 IntraWGOverlap 都用于sm90的mainloop。
 // Return {kBlockM, kBlockN, MmaPV_is_RS, IntraWGOverlap}
 constexpr std::tuple<int, int, bool, bool> tile_size_fwd_sm90(
         int headdim, int headdim_v, bool is_causal, bool is_local, int element_size=2,
