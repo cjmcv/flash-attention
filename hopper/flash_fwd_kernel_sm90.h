@@ -432,15 +432,19 @@ public:
                     float const k_descale = params.mainloop.ptr_k_descale == nullptr ? 1.0f : params.mainloop.ptr_k_descale[bidb * get<0>(params.mainloop.stride_k_descale) + bidh_kv * get<1>(params.mainloop.stride_k_descale)];
                     softmax_scale_log2 *= q_descale * k_descale;
                 }
+                // <NT> kBlockM会取64/128/196#tile_size_fwd_sm90，NumMmaThreads取值会是128*1/2/3=128/256/384
+                // 如果head_dimv(>256)很大, kNRows设为2，否则为 2*2*64/128=2，2*2*128/128=4，2*2*64/256=1, 范围是1/2/4.
                 flash::Softmax<!LargeHeadDimV ? 2 * (2 * kBlockM / NumMmaThreads) : 2, /*Max_offset=*/!Is_FP8 ? 0 : 8> softmax(softmax_scale_log2);
                 // Attention output (GEMM-II) accumulator.
                 Tensor tOrO = partition_fragment_C(tiled_mma_pv, select<0, 1>(TileShape_MNK_PV{}));
                 bool tile_valid;
                 if constexpr (!LargeHeadDimV) {
+                    // <NT> 如果head_dimv没有很大，则在mma里同时完成qkv的计算
                     tile_valid = mainloop.mma(
                         params.mainloop, pipeline_k, pipeline_v, smem_pipe_read,
                         tOrO, softmax, threadIdx.x - MmaThreadOffset, work_idx, seqlen_info, block_coord, shared_storage);
                 } else {  // mma_pv might not compile if !LargeHeadDimV
+                    // <NT> 如果head_dimv很大，则将qk和pv的计算拆分开，wg1计算qk，其他计算pv。
                     if (warp_group_idx == 1) {
                         tile_valid = mainloop.mma(
                             params.mainloop, pipeline_k, pipeline_v, smem_pipe_read,

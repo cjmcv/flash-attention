@@ -98,6 +98,12 @@ struct Softmax {
 
     CUTLASS_DEVICE Softmax(float const softmax_scale_log2_) : softmax_scale_log2(softmax_scale_log2_) {};
 
+    // <NT> flash attention采用增量式 Softmax 计算，分多次处理Q × K^T的结果，而这里的输入参数acc_s是attention计算中一次分块计算q*kt的结果。
+    // 在增量 Softmax 中，直接累积指数值会导致数值溢出或下溢。通过维护每行的最大值并动态调整缩放因子，
+    // 可以将指数运算的输入值控制在合理范围（通常为负数）。同时避免重复计算所有历史数据，只需更新中间状态（如row_sum）。
+    // 函数功能：
+    //      1) 计算每行的最大值（row_max）：用于 Softmax 计算中的数值稳定性（减去最大值避免指数溢出）。
+    //      2) 生成缩放因子（scores_scale）：用于增量更新 Softmax 的分母（即指数和row_sum）
     template<bool Is_first, bool Check_inf=false, typename Tensor0>
     __forceinline__ __device__ TensorT max_get_scale(Tensor0 &acc_s) {
         // Reshape acc_s from ((2, 2, V), MMA_M, MMA_N) to (nrow=(2, MMA_M), ncol=(2, V, MMA_N))
@@ -116,6 +122,7 @@ struct Softmax {
                 float scores_max_cur = !Check_inf
                     ? row_max(mi)
                     : (row_max(mi) == -INFINITY ? 0.0f : row_max(mi));
+                // <NT> 根据历史最大值与当前最大值的差计算缩放因子scores_scale, 并更新row_sum
                 scores_scale(mi) = exp2f((scores_max_prev(mi) - scores_max_cur) * softmax_scale_log2);
                 row_sum(mi) *= scores_scale(mi);
             }
@@ -123,6 +130,9 @@ struct Softmax {
         return scores_scale;
     };
 
+    // <NT> softmax主体，使用scale_apply_exp2函数计算exp2((scores - row_max) * softmax_scale_log2)。
+    // row_max是在max_get_scale中得到的，用于确保指数输入为负数或较小正数，避免溢出。
+    // 使用reduce_sum计算每行的指数和并存储到row_sum。
     template<bool Is_first, bool Check_inf=false, typename Tensor0>
     __forceinline__ __device__ void online_softmax(Tensor0 &acc_s) {
         // Reshape acc_s from ((2, 2, V), MMA_M, MMA_N) to (nrow=(2, MMA_M), ncol=(2, V, MMA_N))
@@ -134,6 +144,13 @@ struct Softmax {
         flash::reduce_sum</*zero_init=*/Is_first, /*warp_reduce=*/false>(scores, row_sum);
     };
 
+    // <NT> 完成 Softmax 计算的最后归一化步骤：for 循环 (max_get_scale + online_softmax) -> finalize -> rescale_o
+    // 全局求和：使用quad_allreduce_对row_sum进行全归约，确保所有线程看到一致的和
+    // 逆求和计算：计算inv_sum = 1.0 / sum，处理零值和 NaN 情况
+    // 缩放因子生成：scores_scale = inv_sum * final_scale，用于最终输出的缩放
+    // 低精度处理：当Max_offset != 0时（如 FP8），对求和结果进行缩放
+    // 对数和存储：将row_sum转换为对数域存储，便于后续增量计算
+    // 公式：row_sum = row_max * (softmax_scale_log2 * ln2) + ln(sum)
     __forceinline__ __device__ TensorT finalize(float const final_scale=1.f) {
         SumOp<float> sum_op;
         quad_allreduce_(row_sum, row_sum, sum_op);
@@ -153,6 +170,7 @@ struct Softmax {
         return scores_scale;
     };
 
+    // <NT> 使用 Softmax 缩放因子对输出结果进行最终缩放
     template<typename Tensor1>
     __forceinline__ __device__ void rescale_o(Tensor1 &acc_o, TensorT const &scores_scale) {
         // Reshape acc_o from (MMA=4, MMA_M, MMA_K) to (nrow=(2, MMA_M), ncol=(2, MMA_K))

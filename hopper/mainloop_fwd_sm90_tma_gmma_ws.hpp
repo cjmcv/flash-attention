@@ -1103,6 +1103,9 @@ struct CollectiveMainloopFwdSm90 {
         if constexpr (!AppendKV) {
             barrier_Q.wait(work_idx % 2);
         } else {
+            // <NT> 旋转位置编码部分, sglang中会有RotaryEmbedding，这里可以不使用
+            // 如需使用，mma中只对Q做处理，K的处理放在了store_kv_new中，
+            // 认为在kvcache里的k都是已经应用了旋转位置编码的数据，所以mma里只处理Q.
             if (get<1>(params.shape_rotary) > 0) {  // Apply rotary to Q
                 using Rotary_t = Rotary<kBlockM, kHeadDim, NumMmaThreadsQK, Element, !(Is_causal || Is_local) /*FixedPosition*/>;
                 Rotary_t rotary(params.ptr_rotary_cos, params.shape_rotary, params.stride_rotary_cos,
@@ -1123,6 +1126,8 @@ struct CollectiveMainloopFwdSm90 {
                         rotary.template load_cos_sin<false /*kInterleaved*/>(m_block),
                         rotary.template load_cos_sin_packgqa<false /*kInterleaved*/>(m_block, params.qhead_per_khead_divmod)
                     );
+                    // <NT> barrier_Q就值为Q的同步负责，在load和mma都会对应用到。
+                    // 这里仅调用了apply_Q_contiguous，而apply_K_contiguous在store_kv_new上。
                     barrier_Q.wait(work_idx % 2);
                     rotary.apply_Q_contiguous(sQ_pi, tRrCosCont, tRrSinCont, m_block, qhead_per_khead);
                 }
@@ -1385,6 +1390,7 @@ struct CollectiveMainloopFwdSm90 {
             if (n_block_max <= n_block_min) { return false; }
         }
 
+        // <NT> 基于shared_storage的对应内存块构建共享内存的V/P/scale tensor。
         Tensor sV = make_tensor(make_smem_ptr(shared_storage.tensors.mainloop.smem_v.data()), SmemLayoutVtMma{});
         Tensor sP = make_tensor(make_smem_ptr(shared_storage.tensors.mainloop.smem_p.data()), SmemLayoutP{});
         Tensor sScale = make_tensor(make_smem_ptr(shared_storage.tensors.mainloop.smem_scale.data()), SmemLayoutScale{});
@@ -1393,13 +1399,18 @@ struct CollectiveMainloopFwdSm90 {
                                                       make_stride(Int<cutlass::NumThreadsPerWarpGroup>{}));
 
         int warp_group_idx = __shfl_sync(0xFFFFFFFF, thread_idx / cutlass::NumThreadsPerWarpGroup, 0);
+        // <NT> 从TileMMA中取出wg的mma，通过warp_group_thread_layout将warp_group_idx转化成thread id。
+        // 基于该thread id取出分块，对应的就是该warp group的分块，然后类型是ThrMMA。
         TiledMmaPV tiled_mma_pv;
         auto wg_mma_pv = tiled_mma_pv.get_slice(warp_group_thread_layout(warp_group_idx));
 
+        // <NT> 基于shared memory Tensor 创建 register Tensor
+        // P充当A矩阵，V充当B矩阵，下面需要计算 P/scale * V = O
         // Allocate "fragments/descriptors"
         Tensor tOrV = wg_mma_pv.partition_fragment_B(sV);
         Tensor tOsP = wg_mma_pv.partition_fragment_A(sP);
 
+        // <NT> 从TileMMA中取出thread对应的mma分块。
         // For load scales to smem, pretend thread_idx is thread_idx % 128
         auto thread_mma_pv = tiled_mma_pv.get_thread_slice(thread_idx % cutlass::NumThreadsPerWarpGroup);
         Tensor taccOcO = thread_mma_pv.partition_C(cute::make_identity_tensor(select<0, 1>(TileShape_MNK_PV{})));
