@@ -48,7 +48,7 @@ void run_flash_fwd(Flash_fwd_params &params, cudaStream_t stream) {
     static constexpr int kStages = Arch >= 90 ? 2 : std::get<3>(kBlockMN_kNWarps_Stages_RS);
     static constexpr bool Q_in_regs = Arch >= 90 ? false : std::get<4>(kBlockMN_kNWarps_Stages_RS);
 
-    // <NT> TileShape_MNK和TileShape_MNK_PV在mainloop和epilogue都有使用，ClusterShape的NK固定为1，M维度是1或2.
+    // <NT>M TileShape_MNK和TileShape_MNK_PV在mainloop和epilogue都有使用，ClusterShape的NK固定为1，M维度是1或2.
     // 维度回顾，搜 "q和k维度[seqlen, nheads, nope_dim+rope_dim]","v维度[seqlen, nheads, nope_dim]"
     // TileShape_MNK   [kBlockM, kBlockN, kHeadDim], 
     // TileShape_MNK_PV[kBlockM, kHeadDimV, kBlockN], P表示投影操作，V有自己的HeadDimV，与kHeadDim不一定相等。(MLA下kHeadDim比HeadDimV多一个rope_dim)

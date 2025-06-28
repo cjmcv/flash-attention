@@ -26,6 +26,8 @@ struct PagedKVManager {
     static constexpr bool SameHeadDim = (kHeadDim == kHeadDimV);
     static constexpr int kHeadDimGCD = cute::gcd(kHeadDim, kHeadDimV);
 
+    // <NT> 使用cp.async来读取K和V，因为TMA对对齐有要求，这个page的KVcache比较零散，无法使用tma.
+    // cp.async一次从gmem拷贝128位到smem。
     // We use CpAsync for K and V if PagedKV, since TMA doesn't work there
     static constexpr int kGmemElemsPerLoad = sizeof(cute::uint128_t) / sizeof(Element);
     static_assert(kHeadDimGCD % kGmemElemsPerLoad == 0, "Headdim and HeaddimV must be a multiple of kGmemElemsPerLoad");
@@ -65,6 +67,10 @@ struct PagedKVManager {
     using TensortVcV = decltype(GmemTiledCopyKVCpAsync{}.get_thread_slice(int(0)).partition_D(cute::make_identity_tensor(Shape<Int<kBlockN>, Int<kHeadDimV>>{})));
     using TensortVpV = decltype(make_tensor<bool>(make_shape(size<1>(TensortVcV{}), size<2>(TensortVcV{})), Stride<_0, _1>{}));
 
+    // <NT> 对于分页键值（PagedKV）结构，为每个页面表项计算指向K（键）和V（值）的指针代价很高，因为这需要进行64位整数运算。
+    // 为了优化，我们让线程分担这项工作。通常情况下，每行有8个线程负责加载（例如，隐藏维度hdim为64或128时），
+    // 而在隐藏维度hdim为128且kBlockN为176的情况下，每个线程需要加载11行。因此，这8个线程中的每一个都将为11 / 8 = 2行
+    // 计算K_ptr（K的指针）和V_ptr（V的指针）。然后，我们使用__shfl_sync函数将指针广播到warp（线程束）中的其他线程。
     // For PagedKV, it's expensive the calculate the pointers to K and V for each page table entry,
     // since those require int64_t arithmetic. We optimize by having threads split this work.
     // Typically there are 8 threads loading per row (e.g. hdim 64 and 128), and there are 11 rows
