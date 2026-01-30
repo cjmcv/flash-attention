@@ -98,12 +98,12 @@ struct Softmax {
 
     CUTLASS_DEVICE Softmax(float const softmax_scale_log2_) : softmax_scale_log2(softmax_scale_log2_) {};
 
-    // <NT> flash attention²ÉÓÃÔöÁ¿Ê½ Softmax ¼ÆËã£¬·Ö¶à´Î´¦ÀíQ ¡Á K^TµÄ½á¹û£¬¶øÕâÀïµÄÊäÈë²ÎÊýacc_sÊÇattention¼ÆËãÖÐÒ»´Î·Ö¿é¼ÆËãq*ktµÄ½á¹û¡£
-    // ÔÚÔöÁ¿ Softmax ÖÐ£¬Ö±½ÓÀÛ»ýÖ¸ÊýÖµ»áµ¼ÖÂÊýÖµÒç³ö»òÏÂÒç¡£Í¨¹ýÎ¬»¤Ã¿ÐÐµÄ×î´óÖµ²¢¶¯Ì¬µ÷ÕûËõ·ÅÒò×Ó£¬
-    // ¿ÉÒÔ½«Ö¸ÊýÔËËãµÄÊäÈëÖµ¿ØÖÆÔÚºÏÀí·¶Î§£¨Í¨³£Îª¸ºÊý£©¡£Í¬Ê±±ÜÃâÖØ¸´¼ÆËãËùÓÐÀúÊ·Êý¾Ý£¬Ö»Ðè¸üÐÂÖÐ¼ä×´Ì¬£¨Èçrow_sum£©¡£
-    // º¯Êý¹¦ÄÜ£º
-    //      1) ¼ÆËãÃ¿ÐÐµÄ×î´óÖµ£¨row_max£©£ºÓÃÓÚ Softmax ¼ÆËãÖÐµÄÊýÖµÎÈ¶¨ÐÔ£¨¼õÈ¥×î´óÖµ±ÜÃâÖ¸ÊýÒç³ö£©¡£
-    //      2) Éú³ÉËõ·ÅÒò×Ó£¨scores_scale£©£ºÓÃÓÚÔöÁ¿¸üÐÂ Softmax µÄ·ÖÄ¸£¨¼´Ö¸ÊýºÍrow_sum£©
+    // <NT> flash attentioné‡‡ç”¨å¢žé‡å¼ Softmax è®¡ç®—ï¼Œåˆ†å¤šæ¬¡å¤„ç†Q Ã— K^Tçš„ç»“æžœï¼Œè€Œè¿™é‡Œçš„è¾“å…¥å‚æ•°acc_sæ˜¯attentionè®¡ç®—ä¸­ä¸€æ¬¡åˆ†å—è®¡ç®—q*ktçš„ç»“æžœã€‚
+    // åœ¨å¢žé‡ Softmax ä¸­ï¼Œç›´æŽ¥ç´¯ç§¯æŒ‡æ•°å€¼ä¼šå¯¼è‡´æ•°å€¼æº¢å‡ºæˆ–ä¸‹æº¢ã€‚é€šè¿‡ç»´æŠ¤æ¯è¡Œçš„æœ€å¤§å€¼å¹¶åŠ¨æ€è°ƒæ•´ç¼©æ”¾å› å­ï¼Œ
+    // å¯ä»¥å°†æŒ‡æ•°è¿ç®—çš„è¾“å…¥å€¼æŽ§åˆ¶åœ¨åˆç†èŒƒå›´ï¼ˆé€šå¸¸ä¸ºè´Ÿæ•°ï¼‰ã€‚åŒæ—¶é¿å…é‡å¤è®¡ç®—æ‰€æœ‰åŽ†å²æ•°æ®ï¼Œåªéœ€æ›´æ–°ä¸­é—´çŠ¶æ€ï¼ˆå¦‚row_sumï¼‰ã€‚
+    // å‡½æ•°åŠŸèƒ½ï¼š
+    //      1) è®¡ç®—æ¯è¡Œçš„æœ€å¤§å€¼ï¼ˆrow_maxï¼‰ï¼šç”¨äºŽ Softmax è®¡ç®—ä¸­çš„æ•°å€¼ç¨³å®šæ€§ï¼ˆå‡åŽ»æœ€å¤§å€¼é¿å…æŒ‡æ•°æº¢å‡ºï¼‰ã€‚
+    //      2) ç”Ÿæˆç¼©æ”¾å› å­ï¼ˆscores_scaleï¼‰ï¼šç”¨äºŽå¢žé‡æ›´æ–° Softmax çš„åˆ†æ¯ï¼ˆå³æŒ‡æ•°å’Œrow_sumï¼‰
     template<bool Is_first, bool Check_inf=false, typename Tensor0>
     __forceinline__ __device__ TensorT max_get_scale(Tensor0 &acc_s) {
         // Reshape acc_s from ((2, 2, V), MMA_M, MMA_N) to (nrow=(2, MMA_M), ncol=(2, V, MMA_N))
@@ -122,7 +122,7 @@ struct Softmax {
                 float scores_max_cur = !Check_inf
                     ? row_max(mi)
                     : (row_max(mi) == -INFINITY ? 0.0f : row_max(mi));
-                // <NT> ¸ù¾ÝÀúÊ·×î´óÖµÓëµ±Ç°×î´óÖµµÄ²î¼ÆËãËõ·ÅÒò×Óscores_scale, ²¢¸üÐÂrow_sum
+                // <NT> æ ¹æ®åŽ†å²æœ€å¤§å€¼ä¸Žå½“å‰æœ€å¤§å€¼çš„å·®è®¡ç®—ç¼©æ”¾å› å­scores_scale, å¹¶æ›´æ–°row_sum
                 scores_scale(mi) = exp2f((scores_max_prev(mi) - scores_max_cur) * softmax_scale_log2);
                 row_sum(mi) *= scores_scale(mi);
             }
@@ -130,9 +130,9 @@ struct Softmax {
         return scores_scale;
     };
 
-    // <NT> softmaxÖ÷Ìå£¬Ê¹ÓÃscale_apply_exp2º¯Êý¼ÆËãexp2((scores - row_max) * softmax_scale_log2)¡£
-    // row_maxÊÇÔÚmax_get_scaleÖÐµÃµ½µÄ£¬ÓÃÓÚÈ·±£Ö¸ÊýÊäÈëÎª¸ºÊý»ò½ÏÐ¡ÕýÊý£¬±ÜÃâÒç³ö¡£
-    // Ê¹ÓÃreduce_sum¼ÆËãÃ¿ÐÐµÄÖ¸ÊýºÍ²¢´æ´¢µ½row_sum¡£
+    // <NT> softmaxä¸»ä½“ï¼Œä½¿ç”¨scale_apply_exp2å‡½æ•°è®¡ç®—exp2((scores - row_max) * softmax_scale_log2)ã€‚
+    // row_maxæ˜¯åœ¨max_get_scaleä¸­å¾—åˆ°çš„ï¼Œç”¨äºŽç¡®ä¿æŒ‡æ•°è¾“å…¥ä¸ºè´Ÿæ•°æˆ–è¾ƒå°æ­£æ•°ï¼Œé¿å…æº¢å‡ºã€‚
+    // ä½¿ç”¨reduce_sumè®¡ç®—æ¯è¡Œçš„æŒ‡æ•°å’Œå¹¶å­˜å‚¨åˆ°row_sumã€‚
     template<bool Is_first, bool Check_inf=false, typename Tensor0>
     __forceinline__ __device__ void online_softmax(Tensor0 &acc_s) {
         // Reshape acc_s from ((2, 2, V), MMA_M, MMA_N) to (nrow=(2, MMA_M), ncol=(2, V, MMA_N))
@@ -144,13 +144,13 @@ struct Softmax {
         flash::reduce_sum</*zero_init=*/Is_first, /*warp_reduce=*/false>(scores, row_sum);
     };
 
-    // <NT> Íê³É Softmax ¼ÆËãµÄ×îºó¹éÒ»»¯²½Öè£ºfor Ñ­»· (max_get_scale + online_softmax) -> finalize -> rescale_o
-    // È«¾ÖÇóºÍ£ºÊ¹ÓÃquad_allreduce_¶Ôrow_sum½øÐÐÈ«¹éÔ¼£¬È·±£ËùÓÐÏß³Ì¿´µ½Ò»ÖÂµÄºÍ
-    // ÄæÇóºÍ¼ÆËã£º¼ÆËãinv_sum = 1.0 / sum£¬´¦ÀíÁãÖµºÍ NaN Çé¿ö
-    // Ëõ·ÅÒò×ÓÉú³É£ºscores_scale = inv_sum * final_scale£¬ÓÃÓÚ×îÖÕÊä³öµÄËõ·Å
-    // µÍ¾«¶È´¦Àí£ºµ±Max_offset != 0Ê±£¨Èç FP8£©£¬¶ÔÇóºÍ½á¹û½øÐÐËõ·Å
-    // ¶ÔÊýºÍ´æ´¢£º½«row_sum×ª»»Îª¶ÔÊýÓò´æ´¢£¬±ãÓÚºóÐøÔöÁ¿¼ÆËã
-    // ¹«Ê½£ºrow_sum = row_max * (softmax_scale_log2 * ln2) + ln(sum)
+    // <NT> å®Œæˆ Softmax è®¡ç®—çš„æœ€åŽå½’ä¸€åŒ–æ­¥éª¤ï¼šfor å¾ªçŽ¯ (max_get_scale + online_softmax) -> finalize -> rescale_o
+    // å…¨å±€æ±‚å’Œï¼šä½¿ç”¨quad_allreduce_å¯¹row_sumè¿›è¡Œå…¨å½’çº¦ï¼Œç¡®ä¿æ‰€æœ‰çº¿ç¨‹çœ‹åˆ°ä¸€è‡´çš„å’Œ
+    // é€†æ±‚å’Œè®¡ç®—ï¼šè®¡ç®—inv_sum = 1.0 / sumï¼Œå¤„ç†é›¶å€¼å’Œ NaN æƒ…å†µ
+    // ç¼©æ”¾å› å­ç”Ÿæˆï¼šscores_scale = inv_sum * final_scaleï¼Œç”¨äºŽæœ€ç»ˆè¾“å‡ºçš„ç¼©æ”¾
+    // ä½Žç²¾åº¦å¤„ç†ï¼šå½“Max_offset != 0æ—¶ï¼ˆå¦‚ FP8ï¼‰ï¼Œå¯¹æ±‚å’Œç»“æžœè¿›è¡Œç¼©æ”¾
+    // å¯¹æ•°å’Œå­˜å‚¨ï¼šå°†row_sumè½¬æ¢ä¸ºå¯¹æ•°åŸŸå­˜å‚¨ï¼Œä¾¿äºŽåŽç»­å¢žé‡è®¡ç®—
+    // å…¬å¼ï¼šrow_sum = row_max * (softmax_scale_log2 * ln2) + ln(sum)
     __forceinline__ __device__ TensorT finalize(float const final_scale=1.f) {
         SumOp<float> sum_op;
         quad_allreduce_(row_sum, row_sum, sum_op);
@@ -170,7 +170,7 @@ struct Softmax {
         return scores_scale;
     };
 
-    // <NT> Ê¹ÓÃ Softmax Ëõ·ÅÒò×Ó¶ÔÊä³ö½á¹û½øÐÐ×îÖÕËõ·Å
+    // <NT> ä½¿ç”¨ Softmax ç¼©æ”¾å› å­å¯¹è¾“å‡ºç»“æžœè¿›è¡Œæœ€ç»ˆç¼©æ”¾
     template<typename Tensor1>
     __forceinline__ __device__ void rescale_o(Tensor1 &acc_o, TensorT const &scores_scale) {
         // Reshape acc_o from (MMA=4, MMA_M, MMA_K) to (nrow=(2, MMA_M), ncol=(2, MMA_K))

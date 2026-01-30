@@ -71,11 +71,11 @@ public:
     using TileSchedulerArguments = typename flash::TileSchedulerArguments;
     using TileSchedulerParams = typename TileScheduler::Params;
 
-    // <NT> Ò»¸öwarpgroupÓÃÓÚload£¬ÆäËûwarpgroupÓÃÓÚmma.
-    // Ò»¸ögroupÓĞ4¸öwarp, NumThreadsPerWarpGroupÊÇ128, TiledMmaPVÔÚmainloopÖĞ¶¨Òå£¬ÓÃÓÚsoftmax(q*kt)ºóÓëv×ögemmµÄmma¿é¡£
-    // Ò»¸öblockµÄÏß³ÌÊı MaxThreadsPerBlock=(NumLoadWarpGroups+NumMmaWarpGroups)*128,
-    // NumMmaWarpGroups»áÈ¡1/2/3£¬ËùÒÔ×î¶àÒ»¸öblockÊÇ4*128=512¸öÏß³Ì¡£
-    // get_block_shape ½«»áÊÇdim3(MaxThreadsPerBlock, 1, 1)£¬ ¶ø get_grid_shape »áÓÉTileSchedulerÌá¹©¡£   
+    // <NT> ä¸€ä¸ªwarpgroupç”¨äºloadï¼Œå…¶ä»–warpgroupç”¨äºmma.
+    // ä¸€ä¸ªgroupæœ‰4ä¸ªwarp, NumThreadsPerWarpGroupæ˜¯128, TiledMmaPVåœ¨mainloopä¸­å®šä¹‰ï¼Œç”¨äºsoftmax(q*kt)åä¸våšgemmçš„mmaå—ã€‚
+    // ä¸€ä¸ªblockçš„çº¿ç¨‹æ•° MaxThreadsPerBlock=(NumLoadWarpGroups+NumMmaWarpGroups)*128,
+    // NumMmaWarpGroupsä¼šå–1/2/3ï¼Œæ‰€ä»¥æœ€å¤šä¸€ä¸ªblockæ˜¯4*128=512ä¸ªçº¿ç¨‹ã€‚
+    // get_block_shape å°†ä¼šæ˜¯dim3(MaxThreadsPerBlock, 1, 1)ï¼Œ è€Œ get_grid_shape ä¼šç”±TileScheduleræä¾›ã€‚   
     static constexpr uint32_t NumLoadWarpGroups = 1;
     static constexpr uint32_t NumMmaWarpGroups = CUTE_STATIC_V(size(TiledMmaPV{})) / cutlass::NumThreadsPerWarpGroup;
     static constexpr uint32_t MaxThreadsPerBlock = CUTE_STATIC_V(size(TiledMmaPV{})) + (NumLoadWarpGroups * cutlass::NumThreadsPerWarpGroup);
@@ -174,7 +174,7 @@ public:
         return TileScheduler::get_grid_shape(params.scheduler, params.hw_info.sm_count);
     }
 
-    // <NT> Ò»Î¬block
+    // <NT> ä¸€ç»´block
     static dim3
     get_block_shape() {
         return dim3(MaxThreadsPerBlock, 1, 1);
@@ -188,7 +188,7 @@ public:
         static constexpr int MmaThreadOffset = NumLoadWarpGroups * cutlass::NumThreadsPerWarpGroup;
         static constexpr int kBlockM = get<0>(TileShape_MNK_PV{});
 
-        // MainloopPipelineVtÓÃÓÚv×ªÖÃµÄÇé¿ö£¬MainloopPipelineKVNewÓÃÓÚAppendKVµÄÇé¿ö£¬ÕâÁ½ÖÖÔÚsglangÖĞ¾ùÎ´Ê¹ÓÃ
+        // MainloopPipelineVtç”¨äºvè½¬ç½®çš„æƒ…å†µï¼ŒMainloopPipelineKVNewç”¨äºAppendKVçš„æƒ…å†µï¼Œè¿™ä¸¤ç§åœ¨sglangä¸­å‡æœªä½¿ç”¨
         using MainloopPipelineK = typename CollectiveMainloop::MainloopPipelineK;
         using MainloopPipelineV = typename CollectiveMainloop::MainloopPipelineV;
         using MainloopPipelineVt = typename CollectiveMainloop::MainloopPipelineVt;
@@ -201,8 +201,8 @@ public:
 
         SharedStorage& shared_storage = *reinterpret_cast<SharedStorage*>(smem_buf);
 
-        // <NT> ÓÃelect_one_sync´ÓwarpÀïÑ¡¾Ù³öÒ»¸öÏß³Ì£¬lane_predicateÎªtrue±íÊ¾±»Ñ¡ÖĞ¡£
-        // ²¢Ê¹ÓÃµÚÒ»¸öwarpµÄÆäÖĞÒ»¸öÏß³ÌÈ¥Æô¶¯tmaÔ¤È¡ÃèÊö·ûºÍ×öbarrierµÄ³õÊ¼»¯¡£
+        // <NT> ç”¨elect_one_syncä»warpé‡Œé€‰ä¸¾å‡ºä¸€ä¸ªçº¿ç¨‹ï¼Œlane_predicateä¸ºtrueè¡¨ç¤ºè¢«é€‰ä¸­ã€‚
+        // å¹¶ä½¿ç”¨ç¬¬ä¸€ä¸ªwarpçš„å…¶ä¸­ä¸€ä¸ªçº¿ç¨‹å»å¯åŠ¨tmaé¢„å–æè¿°ç¬¦å’Œåšbarrierçš„åˆå§‹åŒ–ã€‚
         int const lane_predicate = cute::elect_one_sync();
         int const warp_idx = cutlass::canonical_warp_idx_sync();
 
@@ -224,9 +224,9 @@ public:
             shared_storage.pipelines.barrier_O.init(size(ClusterShape{}) * (Use_TMA_O ? 1 : NumMmaThreads) /*numThreads*/);
         }
 
-        // <NT> Ò»¸öwarp groupÀï0ºÅwarpÎªÉú²úÕß£¬ÆäËûwarpÎªÏû·ÑÕß¡£
-        // Ò»¸öwarpÀïµÄµÚÒ»¸öÏß³Ì³äµ±leader£¬Èç¹ûHeadDimV´óÓÚ256Ê±£¬num_consumersÎª1¸öwarpgroupµÄÏß³ÌÊı£¬·ñÔòÉèÖÃÎªmmaËùÊôµÄËùÓĞwarpgroupµÄÏß³ÌÊı¡£ÎªÊ²Ã´£¿<NT-TODO>
-        // num_consumersÖ÷Òª×÷ÓÃÓÚpipelineµÄbarrier£¬LargeHeadDimV¶¨ÒåÎªHeadDimV´óÓÚ256¡£
+        // <NT> ä¸€ä¸ªwarp groupé‡Œ0å·warpä¸ºç”Ÿäº§è€…ï¼Œå…¶ä»–warpä¸ºæ¶ˆè´¹è€…ã€‚
+        // ä¸€ä¸ªwarpé‡Œçš„ç¬¬ä¸€ä¸ªçº¿ç¨‹å……å½“leaderï¼Œå¦‚æœHeadDimVå¤§äº256æ—¶ï¼Œnum_consumersä¸º1ä¸ªwarpgroupçš„çº¿ç¨‹æ•°ï¼Œå¦åˆ™è®¾ç½®ä¸ºmmaæ‰€å±çš„æ‰€æœ‰warpgroupçš„çº¿ç¨‹æ•°ã€‚ä¸ºä»€ä¹ˆï¼Ÿ<NT-TODO>
+        // num_consumersä¸»è¦ä½œç”¨äºpipelineçš„barrierï¼ŒLargeHeadDimVå®šä¹‰ä¸ºHeadDimVå¤§äº256ã€‚
         // We're counting on pipeline_k to call cutlass::arch::fence_barrier_init();
         PipelineParamsK pipeline_params_k;
         pipeline_params_k.role = warp_group_idx == 0
@@ -260,9 +260,9 @@ public:
         // MainloopPipelineV pipeline_v(shared_storage.pipelines.pipeline_v, pipeline_params_v, ClusterShape{});
         MainloopPipelineV pipeline_v = [&] {
             if constexpr (!Transpose_V) {
-                // <NT> ·ÖÖ§×ßÕâÀï£¬Ê¹ÓÃTMAÖ»¶àÒ»¸öClusterShapeµÄ²ÎÊı£¬½øPipelineTmaAsync£¬
-                // ²»Ê¹ÓÃTMAÔòÓÃcp.async£¬ÊÇsm80Ìá³öµÄ£¬Ã»ÓĞcluster¸ÅÄî£¬×ßµÄÊÇPipelineAsync
-                // ¹¹Ôìº¯Êı¿´include/cutlass/pipeline/sm90_pipeline.hpp#327#PipelineTmaAsync
+                // <NT> åˆ†æ”¯èµ°è¿™é‡Œï¼Œä½¿ç”¨TMAåªå¤šä¸€ä¸ªClusterShapeçš„å‚æ•°ï¼Œè¿›PipelineTmaAsyncï¼Œ
+                // ä¸ä½¿ç”¨TMAåˆ™ç”¨cp.asyncï¼Œæ˜¯sm80æå‡ºçš„ï¼Œæ²¡æœ‰clusteræ¦‚å¿µï¼Œèµ°çš„æ˜¯PipelineAsync
+                // æ„é€ å‡½æ•°çœ‹include/cutlass/pipeline/sm90_pipeline.hpp#327#PipelineTmaAsync
                 //          include/cutlass/pipeline/sm90_pipeline.hpp#1054#PipelineAsync
                 static_assert(is_same_v<PipelineParamsK, PipelineParamsV>);
                 if constexpr (Use_TMA_KV) {
@@ -280,8 +280,8 @@ public:
                 return MainloopPipelineV(shared_storage.pipelines.pipeline_v, pipeline_params_v);
             }
         }();
-        // <NT> pipeline_vt½öÓÃÓÚTranspose_VµÄÇé¿ö£¬Êı¾İ»áÏÈ¾­¹ıpipeline_vt£¬È»ºóÔÙ´Ópipeline_vt×ªµ½pipeline_v
-        // £¨ÔÚsglangÖĞÃ»ÓĞTranspose_V£©¡£
+        // <NT> pipeline_vtä»…ç”¨äºTranspose_Vçš„æƒ…å†µï¼Œæ•°æ®ä¼šå…ˆç»è¿‡pipeline_vtï¼Œç„¶åå†ä»pipeline_vtè½¬åˆ°pipeline_v
+        // ï¼ˆåœ¨sglangä¸­æ²¡æœ‰Transpose_Vï¼‰ã€‚
         // If we need to transpose V (e.g. FP8 and V is row-major), we use pipeline_vt for the TMA, then
         // the producer WG will read from pipeline_vt and write to pipeline_v.
         // If we don't need to transpose V, we use pipeline_v for the TMA, and pipeline_vt won't be used.
@@ -297,7 +297,7 @@ public:
             }
         }();
 
-        // <NT> Õë¶ÔAppendKV£¬ÔÚsglangÖĞÎ´Ê¹ÓÃ
+        // <NT> é’ˆå¯¹AppendKVï¼Œåœ¨sglangä¸­æœªä½¿ç”¨
         PipelineParamsKVNew pipeline_params_kv_new;
         pipeline_params_kv_new.role = warp_group_idx == 0
             ? MainloopPipelineKVNew::ThreadCategory::Producer
@@ -432,19 +432,19 @@ public:
                     float const k_descale = params.mainloop.ptr_k_descale == nullptr ? 1.0f : params.mainloop.ptr_k_descale[bidb * get<0>(params.mainloop.stride_k_descale) + bidh_kv * get<1>(params.mainloop.stride_k_descale)];
                     softmax_scale_log2 *= q_descale * k_descale;
                 }
-                // <NT> kBlockM»áÈ¡64/128/196#tile_size_fwd_sm90£¬NumMmaThreadsÈ¡Öµ»áÊÇ128*1/2/3=128/256/384
-                // Èç¹ûhead_dimv(>256)ºÜ´ó, kNRowsÉèÎª2£¬·ñÔòÎª 2*2*64/128=2£¬2*2*128/128=4£¬2*2*64/256=1, ·¶Î§ÊÇ1/2/4.
+                // <NT> kBlockMä¼šå–64/128/196#tile_size_fwd_sm90ï¼ŒNumMmaThreadså–å€¼ä¼šæ˜¯128*1/2/3=128/256/384
+                // å¦‚æœhead_dimv(>256)å¾ˆå¤§, kNRowsè®¾ä¸º2ï¼Œå¦åˆ™ä¸º 2*2*64/128=2ï¼Œ2*2*128/128=4ï¼Œ2*2*64/256=1, èŒƒå›´æ˜¯1/2/4.
                 flash::Softmax<!LargeHeadDimV ? 2 * (2 * kBlockM / NumMmaThreads) : 2, /*Max_offset=*/!Is_FP8 ? 0 : 8> softmax(softmax_scale_log2);
                 // Attention output (GEMM-II) accumulator.
                 Tensor tOrO = partition_fragment_C(tiled_mma_pv, select<0, 1>(TileShape_MNK_PV{}));
                 bool tile_valid;
                 if constexpr (!LargeHeadDimV) {
-                    // <NT> Èç¹ûhead_dimvÃ»ÓĞºÜ´ó£¬ÔòÔÚmmaÀïÍ¬Ê±Íê³ÉqkvµÄ¼ÆËã
+                    // <NT> å¦‚æœhead_dimvæ²¡æœ‰å¾ˆå¤§ï¼Œåˆ™åœ¨mmaé‡ŒåŒæ—¶å®Œæˆqkvçš„è®¡ç®—
                     tile_valid = mainloop.mma(
                         params.mainloop, pipeline_k, pipeline_v, smem_pipe_read,
                         tOrO, softmax, threadIdx.x - MmaThreadOffset, work_idx, seqlen_info, block_coord, shared_storage);
                 } else {  // mma_pv might not compile if !LargeHeadDimV
-                    // <NT> Èç¹ûhead_dimvºÜ´ó£¬Ôò½«qkºÍpvµÄ¼ÆËã²ğ·Ö¿ª£¬wg1¼ÆËãqk£¬ÆäËû¼ÆËãpv¡£
+                    // <NT> å¦‚æœhead_dimvå¾ˆå¤§ï¼Œåˆ™å°†qkå’Œpvçš„è®¡ç®—æ‹†åˆ†å¼€ï¼Œwg1è®¡ç®—qkï¼Œå…¶ä»–è®¡ç®—pvã€‚
                     if (warp_group_idx == 1) {
                         tile_valid = mainloop.mma(
                             params.mainloop, pipeline_k, pipeline_v, smem_pipe_read,

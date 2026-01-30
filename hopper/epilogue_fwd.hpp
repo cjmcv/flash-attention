@@ -33,7 +33,7 @@ struct CollectiveEpilogueFwd {
     static constexpr bool Varlen = Varlen_;
     static constexpr bool PackGQA = PackGQA_;
     static constexpr bool Split = Split_;
-    // <NT> SplitÎªfalse »ò VarlenÎªtrue£¬ÔòUse_smemÎªtrue
+    // <NT> Splitä¸ºfalse æˆ– Varlenä¸ºtrueï¼Œåˆ™Use_smemä¸ºtrue
     static constexpr bool Use_smem = !(Split && !Varlen);
     static constexpr bool Use_TMA_O = ArchTag::kMinComputeCapability >= 90 && !Varlen && !Split && !PackGQA;
 
@@ -90,8 +90,8 @@ struct CollectiveEpilogueFwd {
     using ShapeLSEPacked = std::conditional_t<!PackGQA, cute::Shape<int32_t, int32_t, int32_t, int32_t>, cute::Shape<cute::Shape<int32_t, int32_t>, int32_t, int32_t, int32_t>>;
     using StrideLSEPacked = std::conditional_t<!PackGQA, StrideLSE, cute::Stride<cute::Stride<int64_t, _1>, int64_t, int64_t, int64_t>>;
 
-    // <NT> CopyOpR2SÊÇCopyOperation£¬ÀïÃæÑ¡ÓÃÁËsm90_get_smem_store_op_for_accumulator£¬ÒâË¼ÊÇÑ¡Ôñ¿ÉÓÃµÄ×î´óÏòÁ¿»¯smem´æ´¢Ô­×Ó²Ù×÷¡£
-    // ±ê¼Ç´Órmem¿½±´µ½smem£¬ÓÃÓÚ¹¹½¨Copy_Atom£¬ºóÃæ½«»áÓëTiledMmaPV×é³ÉTiledCopy½øĞĞ¿½±´²Ù×÷£¬¸ºÔğO¾ØÕó´Órmemµ½smemµÄ¿½±´¡£
+    // <NT> CopyOpR2Sæ˜¯CopyOperationï¼Œé‡Œé¢é€‰ç”¨äº†sm90_get_smem_store_op_for_accumulatorï¼Œæ„æ€æ˜¯é€‰æ‹©å¯ç”¨çš„æœ€å¤§å‘é‡åŒ–smemå­˜å‚¨åŸå­æ“ä½œã€‚
+    // æ ‡è®°ä»rmemæ‹·è´åˆ°smemï¼Œç”¨äºæ„å»ºCopy_Atomï¼Œåé¢å°†ä¼šä¸TiledMmaPVç»„æˆTiledCopyè¿›è¡Œæ‹·è´æ“ä½œï¼Œè´Ÿè´£OçŸ©é˜µä»rmemåˆ°smemçš„æ‹·è´ã€‚
     using CopyOpR2S = std::conditional_t<
         ArchTag::kMinComputeCapability >= 90,
         // cute::SM90_U32x4_STSM_N if Element size is 2 bytes (fp16, bf16)
@@ -250,8 +250,8 @@ struct CollectiveEpilogueFwd {
         // cp.async if we need).
         flash::named_barrier_sync(NumEpilogueThreads, cutlass::arch::ReservedNamedBarriers::EpilogueBarrier);
 
-        // <NT> »ùÓÚ Copy_Atom(SmemCopyAtomO)ºÍTiledMmaPV£¬ÓÃTiledCopyÍê³Érmem->smemµÄ¿½±´¡£
-        // SmemCopyAtomOÖĞµÄCopyOpR2S±ê¼ÇÁËĞèÒª´Órmem¿½±´µ½smem¡£
+        // <NT> åŸºäº Copy_Atom(SmemCopyAtomO)å’ŒTiledMmaPVï¼Œç”¨TiledCopyå®Œæˆrmem->smemçš„æ‹·è´ã€‚
+        // SmemCopyAtomOä¸­çš„CopyOpR2Sæ ‡è®°äº†éœ€è¦ä»rmemæ‹·è´åˆ°smemã€‚
         // Step 1: Write O from rmem -> smem
         if constexpr (Use_smem) {
             auto smem_tiled_copy_O = make_tiled_copy_C(SmemCopyAtomO{}, tiled_mma);
@@ -311,7 +311,7 @@ struct CollectiveEpilogueFwd {
             }
         }
 
-        // <NT> »ùÓÚTMA_O tma_store_O½øĞĞ£¬ÆäÔÚ³õÊ¼»¯Ê±¾ÍÒÑ¾­Æô¶¯ÁËTMAÔ¤È¡ÃèÊö·û£¬ÕâÀïÓÃÀ´»ùÓÚtma½«Êä³ö¾ØÕóO´Ósmem×ªµ½gmem¡£
+        // <NT> åŸºäºTMA_O tma_store_Oè¿›è¡Œï¼Œå…¶åœ¨åˆå§‹åŒ–æ—¶å°±å·²ç»å¯åŠ¨äº†TMAé¢„å–æè¿°ç¬¦ï¼Œè¿™é‡Œç”¨æ¥åŸºäºtmaå°†è¾“å‡ºçŸ©é˜µOä»smemè½¬åˆ°gmemã€‚
         // Step 3: Write O from smem -> gmem
         if constexpr (Use_TMA_O) {
             Tensor mO = params.tma_store_O.get_tma_tensor(params.shape_O)(_, _, bidh, bidb, split_idx);

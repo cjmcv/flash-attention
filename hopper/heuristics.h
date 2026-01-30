@@ -6,31 +6,31 @@
 
 #include <vector>
 
-// <NT> Æô·¢Ê½ÅĞ¶ÏÊÇ·ñÊ¹ÓÃpack_gqa£¬ÓëÖ®Ïà¶ÔÓ¦µÄÊÇnopack_gqa¡£
-// PackGQA ÊÇ FlashAttention ÖĞ¶Ô GQA µÄÒ»ÖÖÓÅ»¯ÊµÏÖ£¬Í¨¹ı¸ü½ô´ÕµÄÄÚ´æ²¼¾ÖºÍË÷Òı»úÖÆ£¬¼õÉÙÁË KV »º´æµÄ´óĞ¡£¬Ìá¸ßÁË¼ÆËãĞ§ÂÊ¡£
+// <NT> å¯å‘å¼åˆ¤æ–­æ˜¯å¦ä½¿ç”¨pack_gqaï¼Œä¸ä¹‹ç›¸å¯¹åº”çš„æ˜¯nopack_gqaã€‚
+// PackGQA æ˜¯ FlashAttention ä¸­å¯¹ GQA çš„ä¸€ç§ä¼˜åŒ–å®ç°ï¼Œé€šè¿‡æ›´ç´§å‡‘çš„å†…å­˜å¸ƒå±€å’Œç´¢å¼•æœºåˆ¶ï¼Œå‡å°‘äº† KV ç¼“å­˜çš„å¤§å°ï¼Œæé«˜äº†è®¡ç®—æ•ˆç‡ã€‚
 // 
-// Æô·¢Ê½¾­Ñé£ºPackGQA µÄËÙ¶ÈÉÔÂıÒ»Ğ©£¬µ«Èç¹ûseqlen_q½ÏĞ¡£¬»òÕß²»ÊÇ kBlockM µÄ±¶Êı¸½½üÊ±£¬Ëü¿ÉÄÜ»áÓĞËù°ïÖú¡£
-// ËùÒÔnopack_gqa_efficiency´óÓÚµÈÓÚ0.9 * pack_gqa_efficiencyÊ±¾Í»áÓÃnopack_gqa¡£
+// å¯å‘å¼ç»éªŒï¼šPackGQA çš„é€Ÿåº¦ç¨æ…¢ä¸€äº›ï¼Œä½†å¦‚æœseqlen_qè¾ƒå°ï¼Œæˆ–è€…ä¸æ˜¯ kBlockM çš„å€æ•°é™„è¿‘æ—¶ï¼Œå®ƒå¯èƒ½ä¼šæœ‰æ‰€å¸®åŠ©ã€‚
+// æ‰€ä»¥nopack_gqa_efficiencyå¤§äºç­‰äº0.9 * pack_gqa_efficiencyæ—¶å°±ä¼šç”¨nopack_gqaã€‚
 inline bool should_pack_gqa(bool varlen_q, int seqlen_q, int qhead_per_khead, int blockM) {
     // If varlen, we don't actually know seqlen_q but only max_seqlen_q.
     if (varlen_q) return true;
     // Heuristic: PackGQA is a bit slower but can help if seqlen_q is small or not near a multiple of kBlockM
-    // <NT> aÏòÉÏÈ¡Õûµ½bµÄ±¶Êı£¬Èça=11£¬b=3£¬(11+3-1)/3*3=13/3*3=12.
+    // <NT> aå‘ä¸Šå–æ•´åˆ°bçš„å€æ•°ï¼Œå¦‚a=11ï¼Œb=3ï¼Œ(11+3-1)/3*3=13/3*3=12.
     auto round_up = [](int a, int b) { return (a + b - 1) / b * b; };
     float nopack_gqa_efficiency = float(seqlen_q) / float(round_up(seqlen_q, blockM));
     float pack_gqa_efficiency = float(seqlen_q * qhead_per_khead) / float(round_up(seqlen_q * qhead_per_khead, blockM));
     return nopack_gqa_efficiency < 0.9 * pack_gqa_efficiency;
 };
 
-// <NT> Æô·¢Ê½Ñ°ÕÒsplitÊıÁ¿£¬ÈÃÊ¹ÓÃÂÊ×î´ó»¯¡£ÀıÈçbatch*n_heads=48, ²¢ÓĞ108¸ösm£¬ÔòsplitsÎª2Ê±£¬ÓÃÁ½¸ösm¸ºÔğÒ»¸öbatch*n_head
-// (ÇĞµÄÊÇseq³¤¶È·½Ïò£¬¸úbatchºÍn_heads²»ÊÇÒ»¸öÎ¬¶È£¬splitÎª2£¬Ôò·Ö³ÉÁËÁ½¿éÍ¬²½½øĞĞ£¬batch*n_headsÖĞµÄÒ»·İ±ä³ÉÁËÁ½·İ£¬´ÓÒ»¸ösm¸ºÔğ±ä³ÉÁËÁ½¸ösm¸ºÔğ)£¬ÔòÊ¹ÓÃÂÊÎª48/(108/2)=0.89.
-// ¶øsplitsÎª3Ê±£¬3¸ösm¸ºÔğÒ»¸ö£¬Ê¹ÓÃÂÊÎª48/(108/3)=48/36=1.33, ³¬ÁË100%£¬Ò»¸öwave´¦Àí²»Íê£¬ĞèÒªÁ½¸öwaveÀ´´¦Àí£¬ËùÒÔĞèÒª48/36*2=0.667¡£
-// ×ÜÖ®£¬¹«Ê½Îª float n_waves = float(total_mblocks * num_splits) / num_SMs;
+// <NT> å¯å‘å¼å¯»æ‰¾splitæ•°é‡ï¼Œè®©ä½¿ç”¨ç‡æœ€å¤§åŒ–ã€‚ä¾‹å¦‚batch*n_heads=48, å¹¶æœ‰108ä¸ªsmï¼Œåˆ™splitsä¸º2æ—¶ï¼Œç”¨ä¸¤ä¸ªsmè´Ÿè´£ä¸€ä¸ªbatch*n_head
+// (åˆ‡çš„æ˜¯seqé•¿åº¦æ–¹å‘ï¼Œè·Ÿbatchå’Œn_headsä¸æ˜¯ä¸€ä¸ªç»´åº¦ï¼Œsplitä¸º2ï¼Œåˆ™åˆ†æˆäº†ä¸¤å—åŒæ­¥è¿›è¡Œï¼Œbatch*n_headsä¸­çš„ä¸€ä»½å˜æˆäº†ä¸¤ä»½ï¼Œä»ä¸€ä¸ªsmè´Ÿè´£å˜æˆäº†ä¸¤ä¸ªsmè´Ÿè´£)ï¼Œåˆ™ä½¿ç”¨ç‡ä¸º48/(108/2)=0.89.
+// è€Œsplitsä¸º3æ—¶ï¼Œ3ä¸ªsmè´Ÿè´£ä¸€ä¸ªï¼Œä½¿ç”¨ç‡ä¸º48/(108/3)=48/36=1.33, è¶…äº†100%ï¼Œä¸€ä¸ªwaveå¤„ç†ä¸å®Œï¼Œéœ€è¦ä¸¤ä¸ªwaveæ¥å¤„ç†ï¼Œæ‰€ä»¥éœ€è¦48/36*2=0.667ã€‚
+// æ€»ä¹‹ï¼Œå…¬å¼ä¸º float n_waves = float(total_mblocks * num_splits) / num_SMs;
 //             float eff = n_waves / ceil(n_waves);
-// ÁíÍâsplitÈç¹ûÌ«¶à£¬»áµ¼ÖÂ¸ü¶àHBMµÄ¶ÁĞ´£¬ËùÒÔĞèÒªÈ¨ºâ£¬ÕâÀïÆô·¢Ê½ËÑË÷µÄ»ù±¾×¼ÔòÊÇÊ¹ÓÃÂÊÄÜ´ïµ½85%µÄ×îĞ¡µÄsplitsÊıÁ¿¡£
-// ´ËÍâĞèÒªÂú×ãKVµÄÃ¿¸öheadÄÜÍêÕûÌî³äµ½L2Àï£¬ÒÔÃâÓ°Ïì¶ÁÈ¡Ğ§ÂÊ£¬ÕâÀï¼Ù¶¨L2ÊÇ50MB 
-// (H20µÄL2ÊÇ60MB; H200µÄL2ÊÇ50MB£¬L1ÊÇ256KB/sm; L40µÄL2ÊÇ96MB, L1ÊÇ128KB/sm): https://www.techpowerup.com/gpu-specs/
-// Ïà¹Ø²©¿Í£ºhttps://zhuanlan.zhihu.com/p/688345042
+// å¦å¤–splitå¦‚æœå¤ªå¤šï¼Œä¼šå¯¼è‡´æ›´å¤šHBMçš„è¯»å†™ï¼Œæ‰€ä»¥éœ€è¦æƒè¡¡ï¼Œè¿™é‡Œå¯å‘å¼æœç´¢çš„åŸºæœ¬å‡†åˆ™æ˜¯ä½¿ç”¨ç‡èƒ½è¾¾åˆ°85%çš„æœ€å°çš„splitsæ•°é‡ã€‚
+// æ­¤å¤–éœ€è¦æ»¡è¶³KVçš„æ¯ä¸ªheadèƒ½å®Œæ•´å¡«å……åˆ°L2é‡Œï¼Œä»¥å…å½±å“è¯»å–æ•ˆç‡ï¼Œè¿™é‡Œå‡å®šL2æ˜¯50MB 
+// (H20çš„L2æ˜¯60MB; H200çš„L2æ˜¯50MBï¼ŒL1æ˜¯256KB/sm; L40çš„L2æ˜¯96MB, L1æ˜¯128KB/sm): https://www.techpowerup.com/gpu-specs/
+// ç›¸å…³åšå®¢ï¼šhttps://zhuanlan.zhihu.com/p/688345042
 
 // Find the number of splits that maximizes the occupancy. For example, if we have
 // batch * n_heads = 48 and we have 108 SMs, having 2 splits (efficiency = 0.89) is
@@ -52,8 +52,8 @@ inline int num_splits_heuristic(int total_mblocks, int num_SMs, int num_n_blocks
             return 1;
         }
     }
-    // <NT> qwen2Ä£ĞÍµÄhead_dimÊÇ128µÄ£¬deepseekv3ÀïµÄ±ê×¼µÄÒ²ÊÇ128£¬ÆäÖĞqk»¹»áÆ´½ÓÉÏrope_dim=64; 
-    //      deepseek v3ÖĞq_lora_rank=1536£¬ kv_lora_rank=512£¬¼´Ñ¹ËõºóµÄqºÍkvµÄÒşÏòÁ¿Î¬¶È£¬´ËÊ±ĞèÒªsplit¡£
+    // <NT> qwen2æ¨¡å‹çš„head_dimæ˜¯128çš„ï¼Œdeepseekv3é‡Œçš„æ ‡å‡†çš„ä¹Ÿæ˜¯128ï¼Œå…¶ä¸­qkè¿˜ä¼šæ‹¼æ¥ä¸Šrope_dim=64; 
+    //      deepseek v3ä¸­q_lora_rank=1536ï¼Œ kv_lora_rank=512ï¼Œå³å‹ç¼©åçš„qå’Œkvçš„éšå‘é‡ç»´åº¦ï¼Œæ­¤æ—¶éœ€è¦splitã€‚
     //                 https://zhuanlan.zhihu.com/p/25449691772
     // If num_n_blocks is too small, use 1 split. For example, we never split for hdim = 128 and seqlen_k = 512.
     if (num_n_blocks <= 4) { return 1; }
@@ -61,7 +61,7 @@ inline int num_splits_heuristic(int total_mblocks, int num_SMs, int num_n_blocks
     float max_efficiency = 0.f;
     std::vector<float> efficiency;
     efficiency.reserve(max_splits);
-    // <NT> ¼ÆËãÃ¿¸ösplitsÊıËù¶ÔÓ¦µÄÊ¹ÓÃÂÊ
+    // <NT> è®¡ç®—æ¯ä¸ªsplitsæ•°æ‰€å¯¹åº”çš„ä½¿ç”¨ç‡
     for (int num_splits = 1; num_splits <= max_splits; num_splits++) {
         float n_waves = float(total_mblocks * num_splits) / num_SMs;
         float eff = n_waves / ceil(n_waves);
@@ -69,7 +69,7 @@ inline int num_splits_heuristic(int total_mblocks, int num_SMs, int num_n_blocks
         if (eff > max_efficiency) { max_efficiency = eff; }
         efficiency.push_back(eff);
     }
-    // <NT> Ñ¡ÔñÂú×ã85%ÀûÓÃÂÊµÄ×îĞ¡²ğ·ÖÊı
+    // <NT> é€‰æ‹©æ»¡è¶³85%åˆ©ç”¨ç‡çš„æœ€å°æ‹†åˆ†æ•°
     for (int num_splits = 1; num_splits <= max_splits; num_splits++) {
         if (efficiency[num_splits - 1] >= 0.85 * max_efficiency) {
             // printf("num_splits chosen = %d\n", num_splits);

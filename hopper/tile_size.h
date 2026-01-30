@@ -6,10 +6,10 @@
 
 #include <tuple>
 
-// <NT> kBlockM, kBlockN ¶ÔÓ¦µÄÊÇÒ»¸ötileµÄ´óĞ¡£¬¾Íblock_size
-// MmaPV_is_RSÊÇbool±äÁ¿£¬»áÓërs_op_selector/ss_op_selector¹ØÁª£¬rs±íÊ¾µÚÒ»¸ö²Ù×÷Êı·ÅÔÚregÊÊºÏÆµ·±·ÃÎÊ£¬ss±íÊ¾µÚÒ»¸ö²Ù×÷Êı·ÅÔÚsmem¡£Êı¾İ½Ï´óÊ±·Åss
-// IntraWGOverlapÒ²ÊÇbool±äÁ¿£¬Ö¸Ê¾ÊÇ·ñÔÚÍ¬Ò»¸öWarp groupÄÚ½øĞĞ¼ÆËãºÍÊı¾İ´«ÊäµÄÖØµş²Ù×÷¡£
-// MmaPV_is_RS ºÍ IntraWGOverlap ¶¼ÓÃÓÚsm90µÄmainloop¡£
+// <NT> kBlockM, kBlockN å¯¹åº”çš„æ˜¯ä¸€ä¸ªtileçš„å¤§å°ï¼Œå°±block_size
+// MmaPV_is_RSæ˜¯boolå˜é‡ï¼Œä¼šä¸rs_op_selector/ss_op_selectorå…³è”ï¼Œrsè¡¨ç¤ºç¬¬ä¸€ä¸ªæ“ä½œæ•°æ”¾åœ¨regé€‚åˆé¢‘ç¹è®¿é—®ï¼Œssè¡¨ç¤ºç¬¬ä¸€ä¸ªæ“ä½œæ•°æ”¾åœ¨smemã€‚æ•°æ®è¾ƒå¤§æ—¶æ”¾ss
+// IntraWGOverlapä¹Ÿæ˜¯boolå˜é‡ï¼ŒæŒ‡ç¤ºæ˜¯å¦åœ¨åŒä¸€ä¸ªWarp groupå†…è¿›è¡Œè®¡ç®—å’Œæ•°æ®ä¼ è¾“çš„é‡å æ“ä½œã€‚
+// MmaPV_is_RS å’Œ IntraWGOverlap éƒ½ç”¨äºsm90çš„mainloopã€‚
 // Return {kBlockM, kBlockN, MmaPV_is_RS, IntraWGOverlap}
 constexpr std::tuple<int, int, bool, bool> tile_size_fwd_sm90(
         int headdim, int headdim_v, bool is_causal, bool is_local, int element_size=2,

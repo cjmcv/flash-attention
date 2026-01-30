@@ -26,8 +26,8 @@ struct PagedKVManager {
     static constexpr bool SameHeadDim = (kHeadDim == kHeadDimV);
     static constexpr int kHeadDimGCD = cute::gcd(kHeadDim, kHeadDimV);
 
-    // <NT> Ê¹ÓÃcp.asyncÀ´¶ÁÈ¡KºÍV£¬ÒòÎªTMA¶Ô¶ÔÆëÓĞÒªÇó£¬Õâ¸öpageµÄKVcache±È½ÏÁãÉ¢£¬ÎŞ·¨Ê¹ÓÃtma.
-    // cp.asyncÒ»´Î´Ógmem¿½±´128Î»µ½smem¡£
+    // <NT> ä½¿ç”¨cp.asyncæ¥è¯»å–Kå’ŒVï¼Œå› ä¸ºTMAå¯¹å¯¹é½æœ‰è¦æ±‚ï¼Œè¿™ä¸ªpageçš„KVcacheæ¯”è¾ƒé›¶æ•£ï¼Œæ— æ³•ä½¿ç”¨tma.
+    // cp.asyncä¸€æ¬¡ä»gmemæ‹·è´128ä½åˆ°smemã€‚
     // We use CpAsync for K and V if PagedKV, since TMA doesn't work there
     static constexpr int kGmemElemsPerLoad = sizeof(cute::uint128_t) / sizeof(Element);
     static_assert(kHeadDimGCD % kGmemElemsPerLoad == 0, "Headdim and HeaddimV must be a multiple of kGmemElemsPerLoad");
@@ -67,10 +67,10 @@ struct PagedKVManager {
     using TensortVcV = decltype(GmemTiledCopyKVCpAsync{}.get_thread_slice(int(0)).partition_D(cute::make_identity_tensor(Shape<Int<kBlockN>, Int<kHeadDimV>>{})));
     using TensortVpV = decltype(make_tensor<bool>(make_shape(size<1>(TensortVcV{}), size<2>(TensortVcV{})), Stride<_0, _1>{}));
 
-    // <NT> ¶ÔÓÚ·ÖÒ³¼üÖµ£¨PagedKV£©½á¹¹£¬ÎªÃ¿¸öÒ³Ãæ±íÏî¼ÆËãÖ¸ÏòK£¨¼ü£©ºÍV£¨Öµ£©µÄÖ¸Õë´ú¼ÛºÜ¸ß£¬ÒòÎªÕâĞèÒª½øĞĞ64Î»ÕûÊıÔËËã¡£
-    // ÎªÁËÓÅ»¯£¬ÎÒÃÇÈÃÏß³Ì·Öµ£ÕâÏî¹¤×÷¡£Í¨³£Çé¿öÏÂ£¬Ã¿ĞĞÓĞ8¸öÏß³Ì¸ºÔğ¼ÓÔØ£¨ÀıÈç£¬Òş²ØÎ¬¶ÈhdimÎª64»ò128Ê±£©£¬
-    // ¶øÔÚÒş²ØÎ¬¶ÈhdimÎª128ÇÒkBlockNÎª176µÄÇé¿öÏÂ£¬Ã¿¸öÏß³ÌĞèÒª¼ÓÔØ11ĞĞ¡£Òò´Ë£¬Õâ8¸öÏß³ÌÖĞµÄÃ¿Ò»¸ö¶¼½«Îª11 / 8 = 2ĞĞ
-    // ¼ÆËãK_ptr£¨KµÄÖ¸Õë£©ºÍV_ptr£¨VµÄÖ¸Õë£©¡£È»ºó£¬ÎÒÃÇÊ¹ÓÃ__shfl_syncº¯Êı½«Ö¸Õë¹ã²¥µ½warp£¨Ïß³ÌÊø£©ÖĞµÄÆäËûÏß³Ì¡£
+    // <NT> å¯¹äºåˆ†é¡µé”®å€¼ï¼ˆPagedKVï¼‰ç»“æ„ï¼Œä¸ºæ¯ä¸ªé¡µé¢è¡¨é¡¹è®¡ç®—æŒ‡å‘Kï¼ˆé”®ï¼‰å’ŒVï¼ˆå€¼ï¼‰çš„æŒ‡é’ˆä»£ä»·å¾ˆé«˜ï¼Œå› ä¸ºè¿™éœ€è¦è¿›è¡Œ64ä½æ•´æ•°è¿ç®—ã€‚
+    // ä¸ºäº†ä¼˜åŒ–ï¼Œæˆ‘ä»¬è®©çº¿ç¨‹åˆ†æ‹…è¿™é¡¹å·¥ä½œã€‚é€šå¸¸æƒ…å†µä¸‹ï¼Œæ¯è¡Œæœ‰8ä¸ªçº¿ç¨‹è´Ÿè´£åŠ è½½ï¼ˆä¾‹å¦‚ï¼Œéšè—ç»´åº¦hdimä¸º64æˆ–128æ—¶ï¼‰ï¼Œ
+    // è€Œåœ¨éšè—ç»´åº¦hdimä¸º128ä¸”kBlockNä¸º176çš„æƒ…å†µä¸‹ï¼Œæ¯ä¸ªçº¿ç¨‹éœ€è¦åŠ è½½11è¡Œã€‚å› æ­¤ï¼Œè¿™8ä¸ªçº¿ç¨‹ä¸­çš„æ¯ä¸€ä¸ªéƒ½å°†ä¸º11 / 8 = 2è¡Œ
+    // è®¡ç®—K_ptrï¼ˆKçš„æŒ‡é’ˆï¼‰å’ŒV_ptrï¼ˆVçš„æŒ‡é’ˆï¼‰ã€‚ç„¶åï¼Œæˆ‘ä»¬ä½¿ç”¨__shfl_syncå‡½æ•°å°†æŒ‡é’ˆå¹¿æ’­åˆ°warpï¼ˆçº¿ç¨‹æŸï¼‰ä¸­çš„å…¶ä»–çº¿ç¨‹ã€‚
     // For PagedKV, it's expensive the calculate the pointers to K and V for each page table entry,
     // since those require int64_t arithmetic. We optimize by having threads split this work.
     // Typically there are 8 threads loading per row (e.g. hdim 64 and 128), and there are 11 rows

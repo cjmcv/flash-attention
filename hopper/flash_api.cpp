@@ -244,14 +244,14 @@ void set_params_dgrad(Flash_bwd_params &params,
     params.deterministic = deterministic;
 }
 
-// <NT> ¸ù¾İdºÍdv¶Ôrun_mha_fwd_º¯ÊıµÄkHeadDimºÍkHeadDimV½øĞĞÊµÀı»¯£¬
-// Ô­ÔòÊÇparams.d<=64µÄkHeadDim¶¼Îª64£¬65~96=>96£¬97~128=>128£¬129~192=>192£¬193~256=>256. ³¬³ö256µÄ²»Ö§³Ö¡£
-// ·Çfp8:
-//  sm80ÏÂkHeadDimVÈ¡kHeadDimÏàÍ¬µÄÖµ¡£
-//  sm90ÏÂ²¿·ÖÌØÊâ´¦Àí£¬kHeadDimÈ¡64Ê±params.dv>256=>512, 64~256=>256, kHeadDimÈ¡192Ê±£¬Èç¹ûparams.dv <= 128£¬ÔòkHeadDimVÈ¡128(×¨ÃÅ¼æÈİdeepseek£¬192-128=64ÊÇrope²¿·Ö)
+// <NT> æ ¹æ®då’Œdvå¯¹run_mha_fwd_å‡½æ•°çš„kHeadDimå’ŒkHeadDimVè¿›è¡Œå®ä¾‹åŒ–ï¼Œ
+// åŸåˆ™æ˜¯params.d<=64çš„kHeadDiméƒ½ä¸º64ï¼Œ65~96=>96ï¼Œ97~128=>128ï¼Œ129~192=>192ï¼Œ193~256=>256. è¶…å‡º256çš„ä¸æ”¯æŒã€‚
+// éfp8:
+//  sm80ä¸‹kHeadDimVå–kHeadDimç›¸åŒçš„å€¼ã€‚
+//  sm90ä¸‹éƒ¨åˆ†ç‰¹æ®Šå¤„ç†ï¼ŒkHeadDimå–64æ—¶params.dv>256=>512, 64~256=>256, kHeadDimå–192æ—¶ï¼Œå¦‚æœparams.dv <= 128ï¼Œåˆ™kHeadDimVå–128(ä¸“é—¨å…¼å®¹deepseekï¼Œ192-128=64æ˜¯ropeéƒ¨åˆ†)
 // fp8:
-//  ²»Ö§³Ösm80/sm89
-//  Ö»Ö§³Ösm90£¬´ó²¿·ÖÇé¿ökHeadDimVÈ¡kHeadDimÏàÍ¬µÄÖµ£¬ÌØÀıÊÇkHeadDimÈ¡192Ê±£¬Èç¹ûparams.dv<=128£¬ÔòkHeadDimVÈ¡128(Í¬ÉÏ)
+//  ä¸æ”¯æŒsm80/sm89
+//  åªæ”¯æŒsm90ï¼Œå¤§éƒ¨åˆ†æƒ…å†µkHeadDimVå–kHeadDimç›¸åŒçš„å€¼ï¼Œç‰¹ä¾‹æ˜¯kHeadDimå–192æ—¶ï¼Œå¦‚æœparams.dv<=128ï¼Œåˆ™kHeadDimVå–128(åŒä¸Š)
 template <int Arch, int Split, bool PagedKVNonTMA, bool PackGQA, bool Has_softcap>
 void run_mha_fwd_constexpr(Flash_fwd_params &params, cudaStream_t stream) {
     if (!params.is_e4m3) {
@@ -361,10 +361,10 @@ void run_mha_fwd(Flash_fwd_params &params, cudaStream_t stream) {
     TORCH_CHECK(params.num_splits >= 1);
     ARCH_SWITCH(params.arch, Arch, [&] {
         SPLIT_SWITCH(params.num_splits > 1, Split, [&] {
-            // <NT> Èç¹ûÊ¹ÓÃpagedµÄkvcache£¬µ«ÓÖÓÉget_pagedkv_tmaÆô·¢Ê½µØÑ¡Ôñ²»Ê¹ÓÃtma°áÔËkvcache£¬
-            // Ôò½«Ä£Ê½ÉèÖÃÎª PagedKVNonTMA=true£¬´ËÊ±kvcacheµÄ°áÔË»áÊ¹ÓÃÆÕÍ¨µÄcp.async?
+            // <NT> å¦‚æœä½¿ç”¨pagedçš„kvcacheï¼Œä½†åˆç”±get_pagedkv_tmaå¯å‘å¼åœ°é€‰æ‹©ä¸ä½¿ç”¨tmaæ¬è¿kvcacheï¼Œ
+            // åˆ™å°†æ¨¡å¼è®¾ç½®ä¸º PagedKVNonTMA=trueï¼Œæ­¤æ—¶kvcacheçš„æ¬è¿ä¼šä½¿ç”¨æ™®é€šçš„cp.async?
             PAGEDKV_SWITCH(params.page_table && !params.pagedkv_tma, PagedKVNonTMA, [&] {
-                // <NT> pack_gqa¶ÔÓ¦ get_pack_gqa / should_pack_gqa º¯Êı£¬
+                // <NT> pack_gqaå¯¹åº” get_pack_gqa / should_pack_gqa å‡½æ•°ï¼Œ
                 PACKGQA_SWITCH(params.pack_gqa, PackGQA_, [&] {
                     // Always enable PackGQA for Sm8x or PagedKVNonTMA or Split to reduce compilation
                     static constexpr bool PackGQA = PackGQA_ || Arch < 90 || PagedKVNonTMA || Split;
@@ -413,12 +413,12 @@ inline bool get_pagedkv_tma(Flash_fwd_params const& params) {
     int const kBlockN = std::get<1>(kBlockMN_kernel_args_sm90);
     // Heuristic: when seqlen_q <= kBlockM, we're not compute bound, and somehow using TMA is slower,
     // at least for MLA.
-    // <NT> Æô·¢Ê½·½·¨£ºµ±seqlen_q <= kBlockMÊ±£¬²¢²»´¦ÓÚcompute bound×´Ì¬£¬´ËÊ±Ê¹ÓÃ TMA »á¸üÂı£¬ÖÁÉÙÔÚ MLA ÖĞÊÇÕâÑù¡£
+    // <NT> å¯å‘å¼æ–¹æ³•ï¼šå½“seqlen_q <= kBlockMæ—¶ï¼Œå¹¶ä¸å¤„äºcompute boundçŠ¶æ€ï¼Œæ­¤æ—¶ä½¿ç”¨ TMA ä¼šæ›´æ…¢ï¼Œè‡³å°‘åœ¨ MLA ä¸­æ˜¯è¿™æ ·ã€‚
     return params.page_size % kBlockN == 0 && params.seqlen_q * (params.h / params.h_k) > kBlockM;
 }
 
-// <NT> ¶ÔÓÚsm8x »ò PagedKVNonTMA »ò Split ¶¼»á²ÉÓÃPackGQA£¬ÒÔ¼õÉÙ±àÒëÊ±¼äºÍ¶ş½øÖÆÎÄ¼ş´óĞ¡¡£
-//      ·ñÔòÔòÆô·¢Ê½Ñ¡ÔñÊÇ·ñÊ¹ÓÃpack_gqaµÄ·½°¸
+// <NT> å¯¹äºsm8x æˆ– PagedKVNonTMA æˆ– Split éƒ½ä¼šé‡‡ç”¨PackGQAï¼Œä»¥å‡å°‘ç¼–è¯‘æ—¶é—´å’ŒäºŒè¿›åˆ¶æ–‡ä»¶å¤§å°ã€‚
+//      å¦åˆ™åˆ™å¯å‘å¼é€‰æ‹©æ˜¯å¦ä½¿ç”¨pack_gqaçš„æ–¹æ¡ˆ
 inline bool get_pack_gqa(Flash_fwd_params const& params) {
     // Always enable PackGQA for Sm8x or PagedKVNonTMA or Split to reduce compilation and binary size.
     // Has little effect on speed.
@@ -435,7 +435,7 @@ inline bool get_pack_gqa(Flash_fwd_params const& params) {
     #endif
 }
 
-// <NT> Æô·¢Ê½Ñ¡ÔñsplitÊıÁ¿
+// <NT> å¯å‘å¼é€‰æ‹©splitæ•°é‡
 inline int get_num_splits(Flash_fwd_params const& params) {
     #ifdef FLASHATTENTION_DISABLE_SPLIT
     return 1;
@@ -462,7 +462,7 @@ inline int get_num_splits(Flash_fwd_params const& params) {
     // If varlen, we use dynamic split, so this heuristic just needs to get an upper bound on num_splits.
     // We assume the case where there's 1 long sequence and the rest are short, i.e. pretending
     // that batch = 1.
-    // <NT> ÔÚvarlenÏÂ£¬Ê¹ÓÃdynamic split£¬ËùÒÔÕâÀïµÄÆô·¢Ê½ËÑË÷num_splitsÖ»ÓÃÓÚ»ñµÃ×î¸ßÏŞÖµ¡£
+    // <NT> åœ¨varlenä¸‹ï¼Œä½¿ç”¨dynamic splitï¼Œæ‰€ä»¥è¿™é‡Œçš„å¯å‘å¼æœç´¢num_splitsåªç”¨äºè·å¾—æœ€é«˜é™å€¼ã€‚
     int total_mblocks = (params.num_splits_dynamic_ptr ? 1 : params.b) * params.h_k * num_m_blocks;
     return num_splits_heuristic(total_mblocks, params.num_sm, num_n_blocks, num_m_blocks, size_one_kv_head, params.is_causal || params.is_local, 128);
     #endif
@@ -642,33 +642,33 @@ mha_fwd_get_scheduler_metadata(
     return tile_count_semaphore;
 }
 
-// <NT> attentionÍÆÀí²¿·ÖµÄc++Ö÷Èë¿Úº¯Êıµ÷ÓÃÁ´Â·:
-// mha_fwdÖ÷Èë¿Ú 
-//  -> ²ÎÊıÌî³äÓëÅĞ¶ÏÑ¡Ôñ
+// <NT> attentionæ¨ç†éƒ¨åˆ†çš„c++ä¸»å…¥å£å‡½æ•°è°ƒç”¨é“¾è·¯:
+// mha_fwdä¸»å…¥å£ 
+//  -> å‚æ•°å¡«å……ä¸åˆ¤æ–­é€‰æ‹©
 //  -> run_mha_fwd 
 //     -> run_mha_fwd_constexpr 
 //        -> run_mha_fwd_ (flash_fwd_launch_template.h)
-//           -> run_flash_fwd (cutlassËã×Ó, ¶ÔÓ¦device²ã)
-//              -> ¶¨Òå AttnKernel (FlashAttnFwdSm90 / FlashAttnFwdSm80)
+//           -> run_flash_fwd (cutlassç®—å­, å¯¹åº”deviceå±‚)
+//              -> å®šä¹‰ AttnKernel (FlashAttnFwdSm90 / FlashAttnFwdSm80)
 //                 -> CollectiveMainloop (CollectiveMainloopFwdSm90 / CollectiveMainloopFwdSm80)
 //                                        -> PipelineTmaAsyncNoCluster
 //                                        -> mma / mma_pv
 //                                        -> load / load_tile 
-//                                        -> load_kv_new / store_kv_new (ÓÃÓÚAppendKV)
+//                                        -> load_kv_new / store_kv_new (ç”¨äºAppendKV)
 //                 -> CollectiveEpilogue
 //                    -> prefetch_tma_descriptors
 //                    -> store / store_tail / store_zero
 //                 -> Scheduler (SchedulerSingleTile / SchedulerPersistent)
-//                                                     => VarlenDynamicPersistentTileScheduler: Õë¶ÔVarlen
-//                                                     => StaticPersistentTileScheduler: Õë¶Ô·ÇVarlen£¬if !Is_causal && !Is_local
-//                                                     => DynamicPersistentTileScheduler: Õë¶Ô·ÇVarlen, else
-//  -> run_mha_fwd_combine Õë¶Ônum_splits > 1µÄÇé¿ö£¬ºÏ²¢run_mha_fwdµÄÊä³ö½á¹û
+//                                                     => VarlenDynamicPersistentTileScheduler: é’ˆå¯¹Varlen
+//                                                     => StaticPersistentTileScheduler: é’ˆå¯¹éVarlenï¼Œif !Is_causal && !Is_local
+//                                                     => DynamicPersistentTileScheduler: é’ˆå¯¹éVarlen, else
+//  -> run_mha_fwd_combine é’ˆå¯¹num_splits > 1çš„æƒ…å†µï¼Œåˆå¹¶run_mha_fwdçš„è¾“å‡ºç»“æœ
 //
-// AOT SchedulerÖ»Õë¶Ôvarlen: 
-// 1) prepare_varlen_num_blocks kernel¼ÆËãsplits£¬µÃµ½ num_splits_dynamic_ptr
-// 2) tile_schedulerÖĞÈçVarlenDynamicPersistentTileScheduler»á»ùÓÚ num_splits_dynamic_ptr ¼ÆËã{next_tile_idx, block, bidh, bidb};
-//                      ÔÚget_initial_workº¯ÊıÖĞ£¬ÓÉÉú²úÕßwarpµ÷ÓÃ£¬È¡µÃÕâĞ©Öµ¡£
-// 3) ÔÚkernelÖĞ£¬ÈçFlashAttnFwdSm90 (hopper/flash_fwd_kernel_sm90.h) ÖĞµÄ operator() ÀïÊ¹ÓÃ¡£
+// AOT Scheduleråªé’ˆå¯¹varlen: 
+// 1) prepare_varlen_num_blocks kernelè®¡ç®—splitsï¼Œå¾—åˆ° num_splits_dynamic_ptr
+// 2) tile_schedulerä¸­å¦‚VarlenDynamicPersistentTileSchedulerä¼šåŸºäº num_splits_dynamic_ptr è®¡ç®—{next_tile_idx, block, bidh, bidb};
+//                      åœ¨get_initial_workå‡½æ•°ä¸­ï¼Œç”±ç”Ÿäº§è€…warpè°ƒç”¨ï¼Œå–å¾—è¿™äº›å€¼ã€‚
+// 3) åœ¨kernelä¸­ï¼Œå¦‚FlashAttnFwdSm90 (hopper/flash_fwd_kernel_sm90.h) ä¸­çš„ operator() é‡Œä½¿ç”¨ã€‚
 // 
 // b: batch_size
 // b_k: batch_size_k
@@ -753,7 +753,7 @@ mha_fwd(at::Tensor q,   // (b, s_q, h, d) or (total_q, h, d) if there is cu_seql
         TORCH_CHECK(cu_seqlens_q.dtype() == torch::kInt32, "cu_seqlens_q must have dtype torch.int32");
         TORCH_CHECK(max_seqlen_q_.has_value(), "max_seqlen_q must be provided if cu_seqlens_q is provided");
     }
-    // <NT> ÔÚflash_attn_varlen_func½Ó¿ÚÖĞÊ¹ÓÃ£¬´ËÊ±²»»áÓĞkvcacheºÍpage_tableÊäÈë
+    // <NT> åœ¨flash_attn_varlen_funcæ¥å£ä¸­ä½¿ç”¨ï¼Œæ­¤æ—¶ä¸ä¼šæœ‰kvcacheå’Œpage_tableè¾“å…¥
     at::Tensor cu_seqlens_k;
     bool const is_varlen_k = cu_seqlens_k_.has_value();
     if (is_varlen_k) {
@@ -835,7 +835,7 @@ mha_fwd(at::Tensor q,   // (b, s_q, h, d) or (total_q, h, d) if there is cu_seql
         CHECK_SHAPE(page_table, batch_size_k, max_num_pages_per_seq);
     }
 
-    // <NT> seqused_q_ / seqused_k_ / leftpad_k_ÕâÈı¸ö²ÎÊıÖ»³öÏÖÔÚflash_attn_varlen_func½Ó¿ÚÀï£¬ÇÒÔÚsglangÖĞÕâÈı¸ö²ÎÊı¶¼Îª¿Õ¡£
+    // <NT> seqused_q_ / seqused_k_ / leftpad_k_è¿™ä¸‰ä¸ªå‚æ•°åªå‡ºç°åœ¨flash_attn_varlen_funcæ¥å£é‡Œï¼Œä¸”åœ¨sglangä¸­è¿™ä¸‰ä¸ªå‚æ•°éƒ½ä¸ºç©ºã€‚
     if (seqused_q_.has_value()){
         auto seqused_q = seqused_q_.value();
         TORCH_CHECK(seqused_q.dtype() == torch::kInt32, "seqused_q must have dtype int32");
@@ -862,13 +862,13 @@ mha_fwd(at::Tensor q,   // (b, s_q, h, d) or (total_q, h, d) if there is cu_seql
         TORCH_CHECK(!is_varlen, "This flash attention build does not support varlen.");
     #endif
 
-    // <NT> Íù128Î»¶ÔÆë, fp8ĞèÒª16¸ö, fp16/bf16ĞèÒª8¸ö
+    // <NT> å¾€128ä½å¯¹é½, fp8éœ€è¦16ä¸ª, fp16/bf16éœ€è¦8ä¸ª
     int const alignment = q_type == torch::kFloat8_e4m3fn ? 16 : 8;
     TORCH_CHECK(head_size % alignment == 0, "head_size should be a multiple of " + std::to_string(alignment));
     TORCH_CHECK(head_size_v % alignment == 0, "head_size_v should be a multiple of " + std::to_string(alignment));
 
     auto opts = q.options();
-    // <NT> (qÎªfp8£¬outÎªbf16)£¬(qÎªfp16, outÎªfp16)£»£¨qÎªbf16£¬outÎªbf16)
+    // <NT> (qä¸ºfp8ï¼Œoutä¸ºbf16)ï¼Œ(qä¸ºfp16, outä¸ºfp16)ï¼›ï¼ˆqä¸ºbf16ï¼Œoutä¸ºbf16)
     auto out_type = q_type == at::ScalarType::Float8_e4m3fn ? at::ScalarType::BFloat16 : q_type;
     at::Tensor out;
     if (out_.has_value()) {
@@ -882,7 +882,7 @@ mha_fwd(at::Tensor q,   // (b, s_q, h, d) or (total_q, h, d) if there is cu_seql
             CHECK_SHAPE(out, total_q, num_heads, head_size_v);
         }
     } else {
-        // <NT> varlenÏÂ»áÊ¹ÓÃtotal_qÀ´´úÌæbatch_sizeºÍseqlen_q£¬Ö»ÓĞÒ»¸öbatch¡£
+        // <NT> varlenä¸‹ä¼šä½¿ç”¨total_qæ¥ä»£æ›¿batch_sizeå’Œseqlen_qï¼Œåªæœ‰ä¸€ä¸ªbatchã€‚
         out = !is_varlen_q
             ? torch::empty({batch_size, seqlen_q, num_heads, head_size_v}, opts.dtype(out_type))
             : torch::empty({total_q, num_heads, head_size_v}, opts.dtype(out_type));
@@ -902,7 +902,7 @@ mha_fwd(at::Tensor q,   // (b, s_q, h, d) or (total_q, h, d) if there is cu_seql
     if (!is_varlen_q) {
         softmax_lse = torch::empty({batch_size, num_heads, seqlen_q}, opts.dtype(at::kFloat));
     } else {
-        // <NT> varlenÏÂÍ¬Ñù»áÊ¹ÓÃtotal_qÀ´´úÌæbatch_sizeºÍseqlen_q
+        // <NT> varlenä¸‹åŒæ ·ä¼šä½¿ç”¨total_qæ¥ä»£æ›¿batch_sizeå’Œseqlen_q
         softmax_lse = torch::empty({num_heads, total_q}, opts.dtype(at::kFloat));
     }
 
@@ -929,7 +929,7 @@ mha_fwd(at::Tensor q,   // (b, s_q, h, d) or (total_q, h, d) if there is cu_seql
     params.total_q = total_q;
     params.total_k = total_k;
     params.b_k = batch_size_k;
-    // <NT> qkµÄhead_dim¿ÉÄÜ»á°üº¬rope²¿·Ö£¬²»Ò»¶¨ºÍvµÄÏàµÈ
+    // <NT> qkçš„head_dimå¯èƒ½ä¼šåŒ…å«ropeéƒ¨åˆ†ï¼Œä¸ä¸€å®šå’Œvçš„ç›¸ç­‰
     params.dv = head_size_v;
     params.dv_rounded = head_size_v_rounded;
     if (leftpad_k_.has_value()) {  // This needs to be set before get_pagedkv_tma
@@ -942,7 +942,7 @@ mha_fwd(at::Tensor q,   // (b, s_q, h, d) or (total_q, h, d) if there is cu_seql
     params.page_size = page_size;
     params.num_pages = num_pages;
 
-    // <NT> ÔÚsglangµÄµ÷ÓÃÖĞ£¬k_new_ºÍv_new_Ò»Ö±Îª¿Õ£¬¼´½á¹û»áÖ±½ÓinplaceĞŞ¸Äµ½kvcacheÀï¡£
+    // <NT> åœ¨sglangçš„è°ƒç”¨ä¸­ï¼Œk_new_å’Œv_new_ä¸€ç›´ä¸ºç©ºï¼Œå³ç»“æœä¼šç›´æ¥inplaceä¿®æ”¹åˆ°kvcacheé‡Œã€‚
     if (k_new_.has_value()) {  // This needs to be set before get_pagedkv_tma
         at::Tensor k_new, v_new;
         TORCH_CHECK(v_new_.has_value(), "If k_new is supplied, v_new must also be passed in");
@@ -991,26 +991,26 @@ mha_fwd(at::Tensor q,   // (b, s_q, h, d) or (total_q, h, d) if there is cu_seql
         }
     }
 
-    // <NT> params.bÊÇbatch_size. Èç¹ûbatch-size³¬¹ı992£¬¾ÍËãÊÇ±ê¼ÇÎªis_varlen£¬Ò²²»»á×ö¶¯Ì¬split¡£
-    // ´ËÊ±»áuse_dynamic_splitÎªfalse£¬num_splits_dynamic_ptrÎªnullptr¡£
-    // ×¢ÒâÓënum_splitsÇø·Ö¿ª£¬num_splitsÊÇ¾²Ì¬²ÎÊı£¬num_splits_dynamic_ptrÊÇ¶¯Ì¬²ÎÊı£¬¶şÕßÄ¿±êÒ»ÖÂ£¬¶¼ÊÇÎªÁËÌá¸ß¼ÆËãĞ§ÂÊ¡£
-    // ¾ßÌåÊ¹ÓÃ¿ÉÒÔ¿´tile_scheduler.cpp: StaticPersistentTileSchedulerºÍDynamicPersistentTileSchedulerÊ¹ÓÃnum_splits£¬
-    // SingleTileSchedulerºÍVarlenDynamicPersistentTileSchedulerÖĞÖ÷ÒªÊ¹ÓÃÁËnum_splits_dynamic_ptr£¬num_splits³äµ±¸¨Öú. 
+    // <NT> params.bæ˜¯batch_size. å¦‚æœbatch-sizeè¶…è¿‡992ï¼Œå°±ç®—æ˜¯æ ‡è®°ä¸ºis_varlenï¼Œä¹Ÿä¸ä¼šåšåŠ¨æ€splitã€‚
+    // æ­¤æ—¶ä¼šuse_dynamic_splitä¸ºfalseï¼Œnum_splits_dynamic_pträ¸ºnullptrã€‚
+    // æ³¨æ„ä¸num_splitsåŒºåˆ†å¼€ï¼Œnum_splitsæ˜¯é™æ€å‚æ•°ï¼Œnum_splits_dynamic_ptræ˜¯åŠ¨æ€å‚æ•°ï¼ŒäºŒè€…ç›®æ ‡ä¸€è‡´ï¼Œéƒ½æ˜¯ä¸ºäº†æé«˜è®¡ç®—æ•ˆç‡ã€‚
+    // å…·ä½“ä½¿ç”¨å¯ä»¥çœ‹tile_scheduler.cpp: StaticPersistentTileSchedulerå’ŒDynamicPersistentTileSchedulerä½¿ç”¨num_splitsï¼Œ
+    // SingleTileSchedulerå’ŒVarlenDynamicPersistentTileSchedulerä¸­ä¸»è¦ä½¿ç”¨äº†num_splits_dynamic_ptrï¼Œnum_splitså……å½“è¾…åŠ©. 
     //
     // 992 = 32 * 31 is the max supported batch in prepare_varlen_num_blocks kernel
     bool const use_dynamic_split = is_varlen && params.b <= 992;
     // Temporarily set num_splits_dynamic_ptr to 1 since get_num_splits checks it
     params.num_splits_dynamic_ptr = !use_dynamic_split ? nullptr : reinterpret_cast<int*>(1);
 
-    // <NT> Õë¶ÔpagedµÄkvcache£¬ÊÇ·ñÊ¹ÓÃtma½øĞĞÊı¾İ°áÔË
+    // <NT> é’ˆå¯¹pagedçš„kvcacheï¼Œæ˜¯å¦ä½¿ç”¨tmaè¿›è¡Œæ•°æ®æ¬è¿
     params.pagedkv_tma = get_pagedkv_tma(params);
-    // <NT> get_num_split»á½øĞĞÆô·¢Ê½ËÑË÷£¬¸ù¾İÊäÈëµÄÅúÁ¿´óĞ¡¡¢ĞòÁĞ³¤¶È¡¢Í·ÊıµÈĞÅÏ¢Ô¤ÏÈ¼ÆËã×îÓÅµÄ²ğ·ÖÊıÁ¿¡£
+    // <NT> get_num_splitä¼šè¿›è¡Œå¯å‘å¼æœç´¢ï¼Œæ ¹æ®è¾“å…¥çš„æ‰¹é‡å¤§å°ã€åºåˆ—é•¿åº¦ã€å¤´æ•°ç­‰ä¿¡æ¯é¢„å…ˆè®¡ç®—æœ€ä¼˜çš„æ‹†åˆ†æ•°é‡ã€‚
     params.num_splits = num_splits <= 0 ? get_num_splits(params) : num_splits;
-    // <NT> ÅĞ¶ÏÊÇ·ñÆôÓÃPackGQA
+    // <NT> åˆ¤æ–­æ˜¯å¦å¯ç”¨PackGQA
     // Always enable PackGQA for Split, and get_pack_gqa requires params.num_splits to decide
     params.pack_gqa = pack_gqa_.has_value() ? pack_gqa_.value() : get_pack_gqa(params);
 
-    // <NT> Õë¶Ônum_splits_dynamic£¬ÎªÁËÈ·±£²»Í¬¼ÆËãtileÖ®¼äµÄÕıÈ·Ö´ĞĞË³ĞòºÍ×ÊÔ´·ÖÅä£¬ĞèÒªÊ¹ÓÃĞÅºÅÁ¿½øĞĞÍ¬²½ºÍ×ÊÔ´¹ÜÀí¡£
+    // <NT> é’ˆå¯¹num_splits_dynamicï¼Œä¸ºäº†ç¡®ä¿ä¸åŒè®¡ç®—tileä¹‹é—´çš„æ­£ç¡®æ‰§è¡Œé¡ºåºå’Œèµ„æºåˆ†é…ï¼Œéœ€è¦ä½¿ç”¨ä¿¡å·é‡è¿›è¡ŒåŒæ­¥å’Œèµ„æºç®¡ç†ã€‚
     // This needs to be set after get_num_splits
     at::Tensor tile_count_semaphore;  // Contains the semaphore and optionally num_splits_dynamic
     // We don't use the persistent scheduler if Split and not Varlen
@@ -1037,9 +1037,9 @@ mha_fwd(at::Tensor q,   // (b, s_q, h, d) or (total_q, h, d) if there is cu_seql
         params.num_splits_dynamic_ptr = use_dynamic_split ? tile_count_semaphore.data_ptr<int>() + 1 : nullptr;
     }
 
-    // <NT> Õı³£µÄMHA,GQA,MQAÖĞµÄqºÍk¶¼ÊÇropeµÄ£¬¼´´øÓĞĞı×ªÎ»ÖÃ±àÂë¡£
-    // ¶øMLAÖĞ»áÇø·ÖropeºÍnope£¬Ôò´ËÊ±q»áÌîÈëq_rope²¿·Ö£¬qv»áÌîÈëq_nope²¿·Ö¡£
-    // rotary_cos_/rotary_sin_Ö»»áÓ¦ÓÃµÄrope²¿·Ö(qºÍk¶¼ÊÇropeµÄ)£¬q_nopeÔò²»»áÓ¦ÓÃ(¼´q_v_)¡£
+    // <NT> æ­£å¸¸çš„MHA,GQA,MQAä¸­çš„qå’Œkéƒ½æ˜¯ropeçš„ï¼Œå³å¸¦æœ‰æ—‹è½¬ä½ç½®ç¼–ç ã€‚
+    // è€ŒMLAä¸­ä¼šåŒºåˆ†ropeå’Œnopeï¼Œåˆ™æ­¤æ—¶qä¼šå¡«å…¥q_ropeéƒ¨åˆ†ï¼Œqvä¼šå¡«å…¥q_nopeéƒ¨åˆ†ã€‚
+    // rotary_cos_/rotary_sin_åªä¼šåº”ç”¨çš„ropeéƒ¨åˆ†(qå’Œkéƒ½æ˜¯ropeçš„)ï¼Œq_nopeåˆ™ä¸ä¼šåº”ç”¨(å³q_v_)ã€‚
     if (q_v_.has_value()) {
         TORCH_CHECK(head_size <= 64, "q_v is only supported for head_size <= 64");
         TORCH_CHECK(q_type == at::ScalarType::Half || q_type == at::ScalarType::BFloat16,
@@ -1063,8 +1063,8 @@ mha_fwd(at::Tensor q,   // (b, s_q, h, d) or (total_q, h, d) if there is cu_seql
         }
     }
 
-    // <NT> sglangÖĞrotary_cos_/rotary_sin_/seqlens_rotary¶¼Ò»Ö±Îª¿Õ¡£
-    // ²é¿´sglang/srt/models/deepseek_v2.py£¬rotary_embÔÚ»áattentionÖ®Íâ½øĞĞ¡£
+    // <NT> sglangä¸­rotary_cos_/rotary_sin_/seqlens_rotaryéƒ½ä¸€ç›´ä¸ºç©ºã€‚
+    // æŸ¥çœ‹sglang/srt/models/deepseek_v2.pyï¼Œrotary_embåœ¨ä¼šattentionä¹‹å¤–è¿›è¡Œã€‚
     if (rotary_cos_.has_value()) {
         TORCH_CHECK(k_new_.has_value(), "If rotary cos/sin are provided, new key / value to be appended to KV cache must also be provided");
         auto rotary_cos = rotary_cos_.value();
@@ -1098,7 +1098,7 @@ mha_fwd(at::Tensor q,   // (b, s_q, h, d) or (total_q, h, d) if there is cu_seql
         params.rotary_dim = 0;
     }
 
-    // <NT> sglangÖĞ kv_batch_idx_ Ò»Ö±Îª¿Õ¡£
+    // <NT> sglangä¸­ kv_batch_idx_ ä¸€ç›´ä¸ºç©ºã€‚
     if (kv_batch_idx_.has_value()) {
         auto kv_batch_idx = kv_batch_idx_.value();
         CHECK_DEVICE(kv_batch_idx); CHECK_CONTIGUOUS(kv_batch_idx);
@@ -1129,7 +1129,7 @@ mha_fwd(at::Tensor q,   // (b, s_q, h, d) or (total_q, h, d) if there is cu_seql
         params.lseaccum_head_stride = softmax_lse_accum.stride(-2);
     }
 
-    // <NT> ×¢Òâq_typeÎªfp8Ê±£¬q_descaleÒ²²»Ò»¶¨»á´æÔÚ£¬ÓĞ¿ÉÄÜ´ËÊ±µÄfp8²»ÊôÓÚÁ¿»¯ÀàĞÍ¡£
+    // <NT> æ³¨æ„q_typeä¸ºfp8æ—¶ï¼Œq_descaleä¹Ÿä¸ä¸€å®šä¼šå­˜åœ¨ï¼Œæœ‰å¯èƒ½æ­¤æ—¶çš„fp8ä¸å±äºé‡åŒ–ç±»å‹ã€‚
     if (q_type == at::ScalarType::Float8_e4m3fn) {
         if (q_descale_.has_value()) {
             auto q_descale = q_descale_.value();

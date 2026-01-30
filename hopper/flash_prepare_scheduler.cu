@@ -23,13 +23,13 @@ __global__ void prepare_varlen_num_blocks_kernel(
         int* const num_splits_dynamic_ptr,
         bool enable_pdl) {
 
-    // <NT> NumThreadsPerWarpÊÇ32£¬kNumBatchPerWarpÔòÊÇ31£¬¼´Ò»¸öwarp¸ºÔğ31¸öbatch
+    // <NT> NumThreadsPerWarpæ˜¯32ï¼ŒkNumBatchPerWarpåˆ™æ˜¯31ï¼Œå³ä¸€ä¸ªwarpè´Ÿè´£31ä¸ªbatch
     static constexpr int kNumBatchPerWarp = cutlass::NumThreadsPerWarp - 1;
     static constexpr int kSmemSize = 1;
     // Assume that there's only one block in the grid
     __shared__ int total_blocks_smem[kSmemSize];
 
-    // <NT> ¶¯Ì¬Íø¸ñµ÷¶È£ºÔÚ´¦Àí¶¯Ì¬Êı¾İ»ò¿É±ä³¤¶ÈĞòÁĞÊ±£¬launch_dependent_grids() ¿ÉÒÔÈ·±£ÔÚÆô¶¯ÏÂÒ»¸ö¼ÆËã½×¶ÎÖ®Ç°£¬µ±Ç°½×¶ÎµÄËùÓĞ¼ÆËã¶¼ÒÑÍê³É
+    // <NT> åŠ¨æ€ç½‘æ ¼è°ƒåº¦ï¼šåœ¨å¤„ç†åŠ¨æ€æ•°æ®æˆ–å¯å˜é•¿åº¦åºåˆ—æ—¶ï¼Œlaunch_dependent_grids() å¯ä»¥ç¡®ä¿åœ¨å¯åŠ¨ä¸‹ä¸€ä¸ªè®¡ç®—é˜¶æ®µä¹‹å‰ï¼Œå½“å‰é˜¶æ®µçš„æ‰€æœ‰è®¡ç®—éƒ½å·²å®Œæˆ
     // There's only 1 block in the grid, so might as well start launching the main attn kernel
     if (enable_pdl) { cutlass::arch::launch_dependent_grids(); }
 
@@ -40,8 +40,8 @@ __global__ void prepare_varlen_num_blocks_kernel(
 
     int lane = threadIdx.x % cutlass::NumThreadsPerWarp;
 
-    // <NT> »ùÓÚQueryĞòÁĞ³¤¶È¼ÆËãËùĞèµÄM¿éÊıÁ¿
-    // bidb_startÊÇ¸Ãwarp¶ÔÓ¦µÄbatchÎ¬¶ÈµÄÆğÊ¼µã£¬Ôòbatch_idxÊÇÈ¡³ö¸ÃwarpÀïÃ¿¸öÏß³Ì¶ÔÓ¦µÄbatchÏÂ±ê
+    // <NT> åŸºäºQueryåºåˆ—é•¿åº¦è®¡ç®—æ‰€éœ€çš„Må—æ•°é‡
+    // bidb_startæ˜¯è¯¥warpå¯¹åº”çš„batchç»´åº¦çš„èµ·å§‹ç‚¹ï¼Œåˆ™batch_idxæ˜¯å–å‡ºè¯¥warpé‡Œæ¯ä¸ªçº¿ç¨‹å¯¹åº”çš„batchä¸‹æ ‡
     // 
     auto get_num_m_blocks = [&](int bidb_start) {
         int batch_idx = lane + bidb_start;
@@ -60,7 +60,7 @@ __global__ void prepare_varlen_num_blocks_kernel(
             ? blockm_divmod.div(seqlen + blockm_divmod.divisor - 1) : 0;
     };
 
-    // <NT> »ùÓÚKeyĞòÁĞ³¤¶È¼ÆËãËùĞèµÄN¿éÊıÁ¿
+    // <NT> åŸºäºKeyåºåˆ—é•¿åº¦è®¡ç®—æ‰€éœ€çš„Nå—æ•°é‡
     auto get_num_n_blocks = [&](int bidb_start) {
         int batch_idx = lane + bidb_start;
         int leftpad_k = batch_idx < num_batch && leftpad_k_ptr != nullptr ? leftpad_k_ptr[batch_idx] : 0;
@@ -88,7 +88,7 @@ __global__ void prepare_varlen_num_blocks_kernel(
             ? blockn_divmod.div(seqlen + blockn_divmod.divisor - 1) : 0;
     };
 
-    // <NT> 1¸öwarp¶ÔÓ¦31¸öbatch£¬bidb_startÊÇ¸Ãwarp¶ÔÓ¦µÄbatchÎ¬¶ÈµÄÆğÊ¼µã
+    // <NT> 1ä¸ªwarpå¯¹åº”31ä¸ªbatchï¼Œbidb_startæ˜¯è¯¥warpå¯¹åº”çš„batchç»´åº¦çš„èµ·å§‹ç‚¹
     int warp_idx = threadIdx.x / cutlass::NumThreadsPerWarp;
     int bidb_start = kNumBatchPerWarp * warp_idx;
     int num_m_blocks = get_num_m_blocks(bidb_start);

@@ -577,10 +577,10 @@ def flash_attn_func(
         sm_margin,
     )
 
-# <NT> flash_attn_varlen_funcÊÇÖ§³Ö±ä³¤µÄapi£¬¶àÓÃÔÚseqlen²»È·¶¨µÄprefill½×¶Î£¬Í¬Ê±Ò²²»ĞèÒªÊäÈëkvcache¡£
-#      flash_attn_with_kvcacheÊÇ¶¨³¤µÄapi£¬¶àÓÃÔÚ¹Ì¶¨ÊäÈë1tokenµÄdecode½×¶Î£¬¼ÆËãĞèÒª´øÉÏkvcache¡£
+# <NT> flash_attn_varlen_funcæ˜¯æ”¯æŒå˜é•¿çš„apiï¼Œå¤šç”¨åœ¨seqlenä¸ç¡®å®šçš„prefillé˜¶æ®µï¼ŒåŒæ—¶ä¹Ÿä¸éœ€è¦è¾“å…¥kvcacheã€‚
+#      flash_attn_with_kvcacheæ˜¯å®šé•¿çš„apiï¼Œå¤šç”¨åœ¨å›ºå®šè¾“å…¥1tokençš„decodeé˜¶æ®µï¼Œè®¡ç®—éœ€è¦å¸¦ä¸Škvcacheã€‚
 
-# <NT> Ö§³ÖvarlenµÄ½Ó¿Ú£¬±ØÌî²ÎÊı¶àÁË cu_seqlens_k / max_seqlen_k (ÕâÁ½¸ö²ÎÊı»áÍ¬Ê±ÓÃÓÚkºÍv), ²»´øk_cacheºÍv_cache¸Ä³ÉÁËkºÍv.
+# <NT> æ”¯æŒvarlençš„æ¥å£ï¼Œå¿…å¡«å‚æ•°å¤šäº† cu_seqlens_k / max_seqlen_k (è¿™ä¸¤ä¸ªå‚æ•°ä¼šåŒæ—¶ç”¨äºkå’Œv), ä¸å¸¦k_cacheå’Œv_cacheæ”¹æˆäº†kå’Œv.
 def flash_attn_varlen_func(
     q,
     k,
@@ -609,7 +609,7 @@ def flash_attn_varlen_func(
         v: (total_k, nheads_k, headdim_v), where total_k = total number of key tokens in the batch.
         cu_seqlens_q: (batch_size + 1,), dtype torch.int32. The cumulative sequence lengths
            of the sequences in the batch, used to index into q. 
-           <NT> ÀÛ»ıĞòÁĞ³¤¶È£¬¼´ÊÇÇ°×ººÍ£¬Ã¿¸öÔªËØ±íÊ¾µ±Ç°ĞòÁĞ¼°ÆäÖ®Ç°ËùÓĞĞòÁĞµÄ×Ü³¤¶È
+           <NT> ç´¯ç§¯åºåˆ—é•¿åº¦ï¼Œå³æ˜¯å‰ç¼€å’Œï¼Œæ¯ä¸ªå…ƒç´ è¡¨ç¤ºå½“å‰åºåˆ—åŠå…¶ä¹‹å‰æ‰€æœ‰åºåˆ—çš„æ€»é•¿åº¦
         cu_seqlens_k: (batch_size + 1,), dtype torch.int32. The cumulative sequence lengths
            of the sequences in the batch, used to index into kv.
         max_seqlen_q: int. Maximum query sequence length in the batch.
@@ -653,11 +653,11 @@ def flash_attn_combine(out_partial, lse_partial, out=None, out_dtype=None):
     return flash_attn_3_cuda.fwd_combine(out_partial, lse_partial, out, out_dtype)
 
 
-# <NT> ÓëÖ®¶ÔÓ¦µÄÊÇÉÏÃæ±ä³¤µÄapi: flash_attn_varlen_func
-# ÔÚsglangÖĞ£¬ Extend½×¶Î£¬Èç¹û·Çmla£¬²ÉÓÃ flash_attn_with_kvcache
-#                             ÊÇmla£¬ÊÇÈ¨ÖØÎüÊÕ½×¶Î£¬²ÉÓÃ flash_attn_with_kvcache
-#                                    ·ÇÈ¨ÖØÎüÊÕ½×¶Î£¬²ÉÓÃ flash_attn_varlen_func
-#             Decode½×¶Î£¬È«²¿²ÉÓÃ flash_attn_with_kvcache
+# <NT> ä¸ä¹‹å¯¹åº”çš„æ˜¯ä¸Šé¢å˜é•¿çš„api: flash_attn_varlen_func
+# åœ¨sglangä¸­ï¼Œ Extendé˜¶æ®µï¼Œå¦‚æœémlaï¼Œé‡‡ç”¨ flash_attn_with_kvcache
+#                             æ˜¯mlaï¼Œæ˜¯æƒé‡å¸æ”¶é˜¶æ®µï¼Œé‡‡ç”¨ flash_attn_with_kvcache
+#                                    éæƒé‡å¸æ”¶é˜¶æ®µï¼Œé‡‡ç”¨ flash_attn_varlen_func
+#             Decodeé˜¶æ®µï¼Œå…¨éƒ¨é‡‡ç”¨ flash_attn_with_kvcache
 def flash_attn_with_kvcache(
     q,
     k_cache,
@@ -734,81 +734,81 @@ def flash_attn_with_kvcache(
     Note: Does not support backward pass.
 
     Arguments:
-    <NT> qºÍkµÄÊÇheaddim, vµÄÊÇheaddim_v, ¶şÕß²»Ò»¶¨ÏàÍ¬, mlaÏÂqºÍkµÄheaddim±Èheaddim_v¶àÒ»¸örope_dim¡£
-         qµÄÊÇnheads, kºÍvµÄÊÇnheads_k, MHAÊ±¶şÕßÏàÍ¬, GQA/MQAÖĞ, kºÍvµÄnheads_k»á±ÈqµÄÒªÉÙ¡£
-        ÔÚdeepseekv3ÖĞ, ÔÚÆÕÍ¨Ä£Ê½ÏÂMHA, qºÍkÎ¬¶È[seqlen, nheads, nope_dim+rope_dim], 
-                                       vÎ¬¶È[seqlen, nheads, nope_dim].
-                      È¨ÖØÎüÊÕÄ£Ê½ÏÂMQA, qÎ¬¶È[seqlen, nheads, latent_dim+rope_dim], 
-                                       kÎ¬¶È[seqlen, 1, latent_dim+rope_dim], 
-                                       vÎ¬¶È[seqlen, 1, latent_dim].
+    <NT> qå’Œkçš„æ˜¯headdim, vçš„æ˜¯headdim_v, äºŒè€…ä¸ä¸€å®šç›¸åŒ, mlaä¸‹qå’Œkçš„headdimæ¯”headdim_vå¤šä¸€ä¸ªrope_dimã€‚
+         qçš„æ˜¯nheads, kå’Œvçš„æ˜¯nheads_k, MHAæ—¶äºŒè€…ç›¸åŒ, GQA/MQAä¸­, kå’Œvçš„nheads_kä¼šæ¯”qçš„è¦å°‘ã€‚
+        åœ¨deepseekv3ä¸­, åœ¨æ™®é€šæ¨¡å¼ä¸‹MHA, qå’Œkç»´åº¦[seqlen, nheads, nope_dim+rope_dim], 
+                                       vç»´åº¦[seqlen, nheads, nope_dim].
+                      æƒé‡å¸æ”¶æ¨¡å¼ä¸‹MQA, qç»´åº¦[seqlen, nheads, latent_dim+rope_dim], 
+                                       kç»´åº¦[seqlen, 1, latent_dim+rope_dim], 
+                                       vç»´åº¦[seqlen, 1, latent_dim].
         q: (batch_size, seqlen, nheads, headdim)
         k_cache: (batch_size_cache, seqlen_cache, nheads_k, headdim) if there's no page_table,
             or (num_blocks, page_block_size, nheads_k, headdim) if there's a page_table (i.e. paged KV cache)
             page_block_size must be a multiple of 256.
         v_cache: (batch_size_cache, seqlen_cache, nheads_k, headdim_v) if there's no page_table,
             or (num_blocks, page_block_size, nheads_k, headdim_v) if there's a page_table (i.e. paged KV cache)
-    <NT> Èç¹ûkºÍv²ÎÊıÎª¿Õ, ¼ÆËã½á¹û»áinplace¸üĞÂµ½k_cache/v_cache¡£Ä¿Ç°(20250612)ÔÚsglangÀïÊ¹ÓÃ, kºÍv¾ùÎª¿Õ, ¶ÔÓ¦k_newºÍv_new, ¼´»áinplace¸üĞÂcache¡£
-        ¶øflash_attn_varlen_funcÖĞÃ»ÓĞk_cacheºÍv_cache, Ö»ÓĞkºÍv, ÒòÎª¸Ã½Ó¿ÚÖ÷ÒªÕë¶ÔprefillÀïÃ»ÓĞkvcacheµÄ½×¶Î(ËùÒÔÒ²Ã»ÓĞpage_table),¿ÉÒÔ¶¯Ì¬µ÷ÕûÊäÈë³¤¶È.
-        (python/sglang/srt/layers/attention/flashattention_backend.py Óë sgl-kernel/python/sgl_kernel/flash_attn.py)
-        Èç¹ûkºÍv²»Îª¿Õ, Ôò¼ÆËãºó»áÖ±½Ó½«kºÍv·Ö±ğÆ´½Óµ½k_cacheºÍv_cacheºóÃæ¡£
+    <NT> å¦‚æœkå’Œvå‚æ•°ä¸ºç©º, è®¡ç®—ç»“æœä¼šinplaceæ›´æ–°åˆ°k_cache/v_cacheã€‚ç›®å‰(20250612)åœ¨sglangé‡Œä½¿ç”¨, kå’Œvå‡ä¸ºç©º, å¯¹åº”k_newå’Œv_new, å³ä¼šinplaceæ›´æ–°cacheã€‚
+        è€Œflash_attn_varlen_funcä¸­æ²¡æœ‰k_cacheå’Œv_cache, åªæœ‰kå’Œv, å› ä¸ºè¯¥æ¥å£ä¸»è¦é’ˆå¯¹prefillé‡Œæ²¡æœ‰kvcacheçš„é˜¶æ®µ(æ‰€ä»¥ä¹Ÿæ²¡æœ‰page_table),å¯ä»¥åŠ¨æ€è°ƒæ•´è¾“å…¥é•¿åº¦.
+        (python/sglang/srt/layers/attention/flashattention_backend.py ä¸ sgl-kernel/python/sgl_kernel/flash_attn.py)
+        å¦‚æœkå’Œvä¸ä¸ºç©º, åˆ™è®¡ç®—åä¼šç›´æ¥å°†kå’Œvåˆ†åˆ«æ‹¼æ¥åˆ°k_cacheå’Œv_cacheåé¢ã€‚
         k [optional]: (batch_size, seqlen_new, nheads_k, headdim). If not None, we concatenate
             k with k_cache, starting at the indices specified by cache_seqlens.
         v [optional]: (batch_size, seqlen_new, nheads_k, headdim_v). Similar to k.
         qv [optional]: (batch_size, seqlen, nheads, headdim_v)
-    <NT> Õë¶ÔqºÍk×öĞı×ªÎ»ÖÃ±àÂë. (sglangµÄµ÷ÓÃÖĞ, ¾ùÎ´Ê¹ÓÃ, Ğı×ªÎ»ÖÃ±àÂëÔÚkernelÍâ½øĞĞ)
+    <NT> é’ˆå¯¹qå’Œkåšæ—‹è½¬ä½ç½®ç¼–ç . (sglangçš„è°ƒç”¨ä¸­, å‡æœªä½¿ç”¨, æ—‹è½¬ä½ç½®ç¼–ç åœ¨kernelå¤–è¿›è¡Œ)
         rotary_cos [optional]: (seqlen_ro, rotary_dim / 2). If not None, we apply rotary embedding
             to k and q. Only applicable if k and v are passed in. rotary_dim must be divisible by 16.
         rotary_sin [optional]: (seqlen_ro, rotary_dim / 2). Similar to rotary_cos.
-    <NT> Èç¹ûÎ´²ÉÓÃpaged KV cache, Ôò½«»á¸úseqlen_cacheÒ»ÖÂ? 
+    <NT> å¦‚æœæœªé‡‡ç”¨paged KV cache, åˆ™å°†ä¼šè·Ÿseqlen_cacheä¸€è‡´? 
         cache_seqlens: int, or (batch_size,), dtype torch.int32. The sequence lengths of the
             KV cache. 
-    <NT> ±ê¼Çkv_cacheµÄbatchµÄÏÂ±ê
+    <NT> æ ‡è®°kv_cacheçš„batchçš„ä¸‹æ ‡
         cache_batch_idx: (batch_size,), dtype torch.int32. The indices used to index into the KV cache.
             If None, we assume that the batch indices are [0, 1, 2, ..., batch_size - 1].
             If the indices are not distinct, and k and v are provided, the values updated in the cache
                  might come from any of the duplicate indices.
         cache_leftpad: (batch_size,), dtype torch.int32. The index that the KV cache starts. If None, assume 0.
-    <NT> Èç¹ûÊÇpaged KV cache, ĞèÒªÌá¹©page_table, sglangÖĞµ÷ÓÃflash_attn_with_kvcache¶¼»áÌá¹©page_table.
+    <NT> å¦‚æœæ˜¯paged KV cache, éœ€è¦æä¾›page_table, sglangä¸­è°ƒç”¨flash_attn_with_kvcacheéƒ½ä¼šæä¾›page_table.
         page_table [optional]: (batch_size, max_num_blocks_per_seq), dtype torch.int32. 
-    <NT> Ö±½ÓÌîÈëattention²ãÖĞµÄlayer.scaling, ÊÇÄ£ĞÍÎÄ¼şµÄ¹Ì¶¨²ÎÊı.
+    <NT> ç›´æ¥å¡«å…¥attentionå±‚ä¸­çš„layer.scaling, æ˜¯æ¨¡å‹æ–‡ä»¶çš„å›ºå®šå‚æ•°.
         softmax_scale: float. The scaling of QK^T before applying softmax.
             Default to 1 / sqrt(headdim).
-    <NT> k_descale / v_descale, ÓÃÓÚfp8µÄkvcache, ÇÒÓĞ¶ÔÓ¦µÄÁ¿»¯Ëã·¨Ê±, ĞèÒªÌîÈë¡£
-         q_descale, ÔÚsglangµÄµ÷ÓÃÖĞÒ»Ö±ÎªNone.
-    <NT> cu_seqlens_q: ÀÛ»ıĞòÁĞ³¤¶È£¬¼´ÊÇÇ°×ººÍ£¬Ã¿¸öÔªËØ±íÊ¾µ±Ç°ĞòÁĞ¼°ÆäÖ®Ç°ËùÓĞĞòÁĞµÄ×Ü³¤¶È. 
-         flash_attn_with_kvcache½Ó¿ÚÃ»ÓĞ²ÎÊıcu_seqlens_k, Ö»ÓĞcu_seqlens_k_new¡£
-    <NT> ÊÇ·ñĞèÒªÒò¹ûÑÚÂë
+    <NT> k_descale / v_descale, ç”¨äºfp8çš„kvcache, ä¸”æœ‰å¯¹åº”çš„é‡åŒ–ç®—æ³•æ—¶, éœ€è¦å¡«å…¥ã€‚
+         q_descale, åœ¨sglangçš„è°ƒç”¨ä¸­ä¸€ç›´ä¸ºNone.
+    <NT> cu_seqlens_q: ç´¯ç§¯åºåˆ—é•¿åº¦ï¼Œå³æ˜¯å‰ç¼€å’Œï¼Œæ¯ä¸ªå…ƒç´ è¡¨ç¤ºå½“å‰åºåˆ—åŠå…¶ä¹‹å‰æ‰€æœ‰åºåˆ—çš„æ€»é•¿åº¦. 
+         flash_attn_with_kvcacheæ¥å£æ²¡æœ‰å‚æ•°cu_seqlens_k, åªæœ‰cu_seqlens_k_newã€‚
+    <NT> æ˜¯å¦éœ€è¦å› æœæ©ç 
         causal: bool. Whether to apply causal attention mask (e.g., for auto-regressive modeling).
         window_size: (left, right). If not (-1, -1), implements sliding window local attention.
-    <NT> softcap Æ½»¬µØ½«·ÖÊıÏŞÖÆÔÚÒ»¸ö¹Ì¶¨·¶Î§ÄÚ, ±ÜÃâ·ÖÊı±äµÃ¹ı´ó¡£sglangÖĞÖ±½Ó¸³Öµlayer.logit_cap, ÊÇÄ£ĞÍÎÄ¼ş¹Ì¶¨²ÎÊı¡£
-         1) Ëõ·Å·ÖÊı: ½«×¢ÒâÁ¦·ÖÊı³ıÒÔÒ»¸öãĞÖµ(softcap)¡£
-         2) Ó¦ÓÃ tanh º¯Êı£º½«Ëõ·ÅºóµÄ·ÖÊıÍ¨¹ı tanh º¯Êı£¬½«ÆäÏŞÖÆÔÚ (-1, 1) ·¶Î§ÄÚ¡£
-         3) ÖØĞÂËõ·Å: ½« tanh µÄÊä³ö³ËÒÔãĞÖµ£¬Ê¹×îÖÕ·ÖÊıÔÚ (-softcap, softcap)
+    <NT> softcap å¹³æ»‘åœ°å°†åˆ†æ•°é™åˆ¶åœ¨ä¸€ä¸ªå›ºå®šèŒƒå›´å†…, é¿å…åˆ†æ•°å˜å¾—è¿‡å¤§ã€‚sglangä¸­ç›´æ¥èµ‹å€¼layer.logit_cap, æ˜¯æ¨¡å‹æ–‡ä»¶å›ºå®šå‚æ•°ã€‚
+         1) ç¼©æ”¾åˆ†æ•°: å°†æ³¨æ„åŠ›åˆ†æ•°é™¤ä»¥ä¸€ä¸ªé˜ˆå€¼(softcap)ã€‚
+         2) åº”ç”¨ tanh å‡½æ•°ï¼šå°†ç¼©æ”¾åçš„åˆ†æ•°é€šè¿‡ tanh å‡½æ•°ï¼Œå°†å…¶é™åˆ¶åœ¨ (-1, 1) èŒƒå›´å†…ã€‚
+         3) é‡æ–°ç¼©æ”¾: å°† tanh çš„è¾“å‡ºä¹˜ä»¥é˜ˆå€¼ï¼Œä½¿æœ€ç»ˆåˆ†æ•°åœ¨ (-softcap, softcap)
         softcap: float. Anything > 0 activates softcapping attention. 
         rotary_interleaved: bool. Only applicable if rotary_cos and rotary_sin are passed in.
             If True, rotary embedding will combine dimensions 0 & 1, 2 & 3, etc. If False,
             rotary embedding will combine dimensions 0 & rotary_dim / 2, 1 & rotary_dim / 2 + 1
             (i.e. GPT-NeoX style).
-    <NT> num_splits¶ÔkºÍvÑØ×ÅseqÎ¬¶È½øĞĞÇĞ·Ö (·Ö¿é´¦Àí?). Îª1Ê±, ²»ÇĞ·Ö; 0Ê±²ÉÓÃÆô·¢Ê½×Ô¶¯ÇĞ·Ö: 
-        mha_fwd(»òmha_fwd_get_scheduler_metadata) -> get_num_splits -> num_splits_heuristic.
-        num_splits´óÓÚ1Ê±, ĞèÒªÅäºÏ¼ÆËã×ÊÔ´·ÖÅäµÄmetadata½øĞĞ¼ÆËã, run_mha_fwd¼ÆËã½áÊøĞèÒªµ÷ÓÃrun_mha_fwd_combineÀ´ÕûºÏ½á¹û¡£
+    <NT> num_splitså¯¹kå’Œvæ²¿ç€seqç»´åº¦è¿›è¡Œåˆ‡åˆ† (åˆ†å—å¤„ç†?). ä¸º1æ—¶, ä¸åˆ‡åˆ†; 0æ—¶é‡‡ç”¨å¯å‘å¼è‡ªåŠ¨åˆ‡åˆ†: 
+        mha_fwd(æˆ–mha_fwd_get_scheduler_metadata) -> get_num_splits -> num_splits_heuristic.
+        num_splitså¤§äº1æ—¶, éœ€è¦é…åˆè®¡ç®—èµ„æºåˆ†é…çš„metadataè¿›è¡Œè®¡ç®—, run_mha_fwdè®¡ç®—ç»“æŸéœ€è¦è°ƒç”¨run_mha_fwd_combineæ¥æ•´åˆç»“æœã€‚
         num_splits: int. If > 1, split the key/value into this many chunks along the sequence.
            If num_splits == 1, we don't split the key/value. If num_splits == 0, we use a heuristic
            to automatically determine the number of splits.
            Don't change this unless you know what you are doing.
         return_softmax_lse: bool. Whether to return the logsumexp of the attention scores.
-    <NT> scheduler_metadata ¿ÉÒÔÍ¨¹ı½Ó¿Úget_scheduler_metadataÉú³É, ºËĞÄº¯ÊıÊÇ prepare_varlen_num_blocks_kernel, 
-        µÃµ½ÓÃÓÚ¶¯Ì¬·Ö¿éµÄnum_splits_dynamic_ptr (ÉÏÃæµÄnum_splitsÔò¶ÔÓ¦num_splits_static, Ö»ÓĞnum_splits´óÓÚ1Ê±²ÅĞèÒª),
-        »á¾ö¶¨ VarlenDynamicPersistentTileScheduler ÖĞ×ÊÔ´·ÖÅäÇé¿ö¡£
-        Õë¶ÔÒ»¸öbatchÊı¾İµÄÍÆÀí, ÏàÍ¬attentionµÄ²»Í¬²ã¿ÉÒÔ¹²ÏíÒ»·İmetadata, ÒòÎªÊı¾İ³¤¶ÈµÈĞÅÏ¢¶ÔÕâ¸öËùÓĞ²ãµÄÍÆÀí¶¼ÊÇÒ»ÑùµÄ¡£
-    <NT> pack_gqa (sglangÖĞÔİÎ´µ÷ÓÃ)
-    <NT> sm_margin ÔÚset_params_fpropÖĞÓÃµ½, ½«sm_margin¸ösmÔ¤Áô³öÀ´ (sglangÖĞÔİÎ´µ÷ÓÃ)
-         Èç params.num_sm = at::cuda::getCurrentDeviceProperties()->multiProcessorCount - sm_margin; 
+    <NT> scheduler_metadata å¯ä»¥é€šè¿‡æ¥å£get_scheduler_metadataç”Ÿæˆ, æ ¸å¿ƒå‡½æ•°æ˜¯ prepare_varlen_num_blocks_kernel, 
+        å¾—åˆ°ç”¨äºåŠ¨æ€åˆ†å—çš„num_splits_dynamic_ptr (ä¸Šé¢çš„num_splitsåˆ™å¯¹åº”num_splits_static, åªæœ‰num_splitså¤§äº1æ—¶æ‰éœ€è¦),
+        ä¼šå†³å®š VarlenDynamicPersistentTileScheduler ä¸­èµ„æºåˆ†é…æƒ…å†µã€‚
+        é’ˆå¯¹ä¸€ä¸ªbatchæ•°æ®çš„æ¨ç†, ç›¸åŒattentionçš„ä¸åŒå±‚å¯ä»¥å…±äº«ä¸€ä»½metadata, å› ä¸ºæ•°æ®é•¿åº¦ç­‰ä¿¡æ¯å¯¹è¿™ä¸ªæ‰€æœ‰å±‚çš„æ¨ç†éƒ½æ˜¯ä¸€æ ·çš„ã€‚
+    <NT> pack_gqa (sglangä¸­æš‚æœªè°ƒç”¨)
+    <NT> sm_margin åœ¨set_params_fpropä¸­ç”¨åˆ°, å°†sm_marginä¸ªsmé¢„ç•™å‡ºæ¥ (sglangä¸­æš‚æœªè°ƒç”¨)
+         å¦‚ params.num_sm = at::cuda::getCurrentDeviceProperties()->multiProcessorCount - sm_margin; 
     Return:
         out: (batch_size, seqlen, nheads, headdim).
-    <NT> Log-Sum-Exp ¶ÔÊıÇóºÍÖ¸Êı, ÓÃÓÚ¼ÆËã softmax µÄÖĞ¼ä½á¹û£¬Í¬Ê±±ÜÃâÊıÖµÒç³öÎÊÌâ(¼´ÏÈ¼õÈ¥×î´óÖµ£¬ÔÙ¼ÆËãÖ¸ÊıºÍ¶ÔÊı).
-        Í¨¹ı softmax_lse, ÎÒÃÇ¿ÉÒÔ¸ßĞ§ÇÒÎÈ¶¨µØ¼ÆËã×îÖÕµÄ softmax Öµ¡£softmax_lse Í¨¹ı¼õÈ¥×î´óÖµ±ÜÃâÁËÊıÖµÒç³öÎÊÌâ,
-        ²¢Í¨¹ı·Ö¿é´¦Àí¼õÉÙÁËÄÚ´æÕ¼ÓÃºÍ¼ÆËãÁ¿¡£×îÖÕµÄ softmax ÖµÍ¨¹ı¹éÒ»»¯Ö¸ÊıÖµµÃµ½£¬È·±£ÁËËùÓĞÖµµÄºÍÎª 1.
+    <NT> Log-Sum-Exp å¯¹æ•°æ±‚å’ŒæŒ‡æ•°, ç”¨äºè®¡ç®— softmax çš„ä¸­é—´ç»“æœï¼ŒåŒæ—¶é¿å…æ•°å€¼æº¢å‡ºé—®é¢˜(å³å…ˆå‡å»æœ€å¤§å€¼ï¼Œå†è®¡ç®—æŒ‡æ•°å’Œå¯¹æ•°).
+        é€šè¿‡ softmax_lse, æˆ‘ä»¬å¯ä»¥é«˜æ•ˆä¸”ç¨³å®šåœ°è®¡ç®—æœ€ç»ˆçš„ softmax å€¼ã€‚softmax_lse é€šè¿‡å‡å»æœ€å¤§å€¼é¿å…äº†æ•°å€¼æº¢å‡ºé—®é¢˜,
+        å¹¶é€šè¿‡åˆ†å—å¤„ç†å‡å°‘äº†å†…å­˜å ç”¨å’Œè®¡ç®—é‡ã€‚æœ€ç»ˆçš„ softmax å€¼é€šè¿‡å½’ä¸€åŒ–æŒ‡æ•°å€¼å¾—åˆ°ï¼Œç¡®ä¿äº†æ‰€æœ‰å€¼çš„å’Œä¸º 1.
         softmax_lse [optional, if return_softmax_lse=True]: (batch_size, nheads, seqlen). The
             logsumexp of each row of the matrix QK^T * scaling (e.g., log of the softmax
             normalization factor).

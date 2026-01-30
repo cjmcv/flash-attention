@@ -35,8 +35,8 @@ void run_flash_fwd(Flash_fwd_params &params, cudaStream_t stream) {
     static constexpr bool FP8_TransposeV = Is_FP8 && !V_colmajor;
     using ArchTag = std::conditional_t<Arch >= 90, cutlass::arch::Sm90, cutlass::arch::Sm80>;
 
-    // <NT> sm90ÒÔÉÏµÄkStages¹Ì¶¨Îª2£¬MmaPV_is_RSºÍIntraWGOverlapÊÇsm90ÒÔÉÏµÄ×¨Êô
-    //      kNWarpsºÍQ_in_regsÊÇsm80×¨ÓÃ¡£
+    // <NT> sm90ä»¥ä¸Šçš„kStageså›ºå®šä¸º2ï¼ŒMmaPV_is_RSå’ŒIntraWGOverlapæ˜¯sm90ä»¥ä¸Šçš„ä¸“å±
+    //      kNWarpså’ŒQ_in_regsæ˜¯sm80ä¸“ç”¨ã€‚
     // Can't use structured binding since it's not compatible with constexpr
     static constexpr std::tuple<int, int, bool, bool> kBlockMN_RS_IntraWGOverlap = tile_size_fwd_sm90(kHeadDim, kHeadDimV, Is_causal, Is_local, sizeof(Element) /*element_size*/, V_colmajor, PagedKVNonTMA, Has_softcap);
     static constexpr std::tuple<int, int, int, int, bool> kBlockMN_kNWarps_Stages_RS = tile_size_fwd_sm8x(Arch == 86 || Arch == 89, kHeadDim, kHeadDimV, Is_causal, Is_local, sizeof(Element) /*element_size*/, PagedKVNonTMA, Varlen && Split, Has_softcap, AppendKV);
@@ -48,24 +48,24 @@ void run_flash_fwd(Flash_fwd_params &params, cudaStream_t stream) {
     static constexpr int kStages = Arch >= 90 ? 2 : std::get<3>(kBlockMN_kNWarps_Stages_RS);
     static constexpr bool Q_in_regs = Arch >= 90 ? false : std::get<4>(kBlockMN_kNWarps_Stages_RS);
 
-    // <NT>M TileShape_MNKºÍTileShape_MNK_PVÔÚmainloopºÍepilogue¶¼ÓĞÊ¹ÓÃ£¬ClusterShapeµÄNK¹Ì¶¨Îª1£¬MÎ¬¶ÈÊÇ1»ò2.
-    // Î¬¶È»Ø¹Ë£¬ËÑ "qºÍkÎ¬¶È[seqlen, nheads, nope_dim+rope_dim]","vÎ¬¶È[seqlen, nheads, nope_dim]"
+    // <NT>M TileShape_MNKå’ŒTileShape_MNK_PVåœ¨mainloopå’Œepilogueéƒ½æœ‰ä½¿ç”¨ï¼ŒClusterShapeçš„NKå›ºå®šä¸º1ï¼ŒMç»´åº¦æ˜¯1æˆ–2.
+    // ç»´åº¦å›é¡¾ï¼Œæœ "qå’Œkç»´åº¦[seqlen, nheads, nope_dim+rope_dim]","vç»´åº¦[seqlen, nheads, nope_dim]"
     // TileShape_MNK   [kBlockM, kBlockN, kHeadDim], 
-    // TileShape_MNK_PV[kBlockM, kHeadDimV, kBlockN], P±íÊ¾Í¶Ó°²Ù×÷£¬VÓĞ×Ô¼ºµÄHeadDimV£¬ÓëkHeadDim²»Ò»¶¨ÏàµÈ¡£(MLAÏÂkHeadDim±ÈHeadDimV¶àÒ»¸örope_dim)
+    // TileShape_MNK_PV[kBlockM, kHeadDimV, kBlockN], Pè¡¨ç¤ºæŠ•å½±æ“ä½œï¼ŒVæœ‰è‡ªå·±çš„HeadDimVï¼Œä¸kHeadDimä¸ä¸€å®šç›¸ç­‰ã€‚(MLAä¸‹kHeadDimæ¯”HeadDimVå¤šä¸€ä¸ªrope_dim)
     // 
-    // self-attention¹«Ê½£ºsoftmax(q * kt / softmax_scale) * v
-    // ×¢£ºmmaÖĞµÄlayout¶¨ÒåÊÇ [Êä³ö¾ØÕóCµÄMÎ¬¶È, Êä³ö¾ØÕóCµÄNÎ¬¶È, AB¾ØÕó±»Ïû³ıµÄKÎ¬¶È]
+    // self-attentionå…¬å¼ï¼šsoftmax(q * kt / softmax_scale) * v
+    // æ³¨ï¼šmmaä¸­çš„layoutå®šä¹‰æ˜¯ [è¾“å‡ºçŸ©é˜µCçš„Mç»´åº¦, è¾“å‡ºçŸ©é˜µCçš„Nç»´åº¦, ABçŸ©é˜µè¢«æ¶ˆé™¤çš„Kç»´åº¦]
     // 
-    // 1£©µÚÒ»¸ögemmÊÇq*kt£¬Ã¿¸öheadĞèÒª¶ÀÁ¢¼ÆËã£¬nheadsµ¥¶ÀÄÃ³öÀ´£¬¼´ÒªÇóq[seqlen,head_dim]*kt[head_dim,seqlen]=o[seqlen,seqlen]
-    //    qºÍkµÄÎ¬¶È»á´Ó[seqlen, nheads, head_dim]£¬¶¼ÏÈ×ªÎª[nheads, seqlen, head_dim]£¬½ø¶økÔÚ¼ÆËãÇ°ĞèÒª×ªÖÃµÃµ½[nheads, head_dim, seqlen]
+    // 1ï¼‰ç¬¬ä¸€ä¸ªgemmæ˜¯q*ktï¼Œæ¯ä¸ªheadéœ€è¦ç‹¬ç«‹è®¡ç®—ï¼Œnheadså•ç‹¬æ‹¿å‡ºæ¥ï¼Œå³è¦æ±‚q[seqlen,head_dim]*kt[head_dim,seqlen]=o[seqlen,seqlen]
+    //    qå’Œkçš„ç»´åº¦ä¼šä»[seqlen, nheads, head_dim]ï¼Œéƒ½å…ˆè½¬ä¸º[nheads, seqlen, head_dim]ï¼Œè¿›è€Œkåœ¨è®¡ç®—å‰éœ€è¦è½¬ç½®å¾—åˆ°[nheads, head_dim, seqlen]
     //    q*kt => q[nheads, seqlen, head_dim] * kt[nheads, head_dim, seqlen] = o[n_heads, seq_len, seq_len]
-    //    nheads¿ÉÒÔµ¥¶ÀÈ¡³ö£¬´Ó[seqlen,seqlen]¿´gemm²¼¾Ö£¬layoutµÄMºÍN¶ÔÓ¦Êä³öO[seqlen,seqlen], ¼´¶¼ÊÇseqlen£¬¶øKÊÇ±»ÏûµôµÄhead_dim¡£
-    //    ËùÒÔÕâ´ÎgemmµÄTileShape_MNKÉèÖÃÎª[kBlockM, kBlockN, kHeadDim]
+    //    nheadså¯ä»¥å•ç‹¬å–å‡ºï¼Œä»[seqlen,seqlen]çœ‹gemmå¸ƒå±€ï¼Œlayoutçš„Må’ŒNå¯¹åº”è¾“å‡ºO[seqlen,seqlen], å³éƒ½æ˜¯seqlenï¼Œè€ŒKæ˜¯è¢«æ¶ˆæ‰çš„head_dimã€‚
+    //    æ‰€ä»¥è¿™æ¬¡gemmçš„TileShape_MNKè®¾ç½®ä¸º[kBlockM, kBlockN, kHeadDim]
     //
-    // 2£©q*ktµÄ½á¹ûo[nheads, seqlen, seqlen]£¬»áÏÈ¾­¹ısoftmax½«ÊıÖµ×ª»»Îª¸ÅÂÊ·Ö²¼£¬²»»á¶ÔÆäÎ¬¶ÈÓĞÈÎºÎÓ°Ïì£¬µÃµ½p£¬ËæºóÓëv[seqlen, nheads, head_dimv]×ögemm¡£
-    //    vÊ×ÏÈÍ¬Ñù»á×ªÎª[nheads, seqlen, head_dimv]£¬¼´p[nheads, seqlen, seqlen]*v[nheads, seqlen, head_dimv]=o2[nheads, seqlen, head_dimv].
-    //    È¥µônheads£¬´Ó[seqlen, head_dimv]·ÖÎögemm£¬¿ÉÒÔ¿´µ½layoutµÄMºÍN·Ö±ğ¶ÔÓ¦seqlenºÍhead_dimv£¬KÔòÊÇ±»ÏûµôµÄseqlenµÄÎ¬¶È¡£
-    //    ËùÒÔÕâ´ÎgemmµÄTileShape_MNK_PVÉèÖÃÎª[kBlockM, kHeadDimV, kBlockN]£¬¶ø²»ÊÇ[kBlockM, kBlockN, kHeadDimV]
+    // 2ï¼‰q*ktçš„ç»“æœo[nheads, seqlen, seqlen]ï¼Œä¼šå…ˆç»è¿‡softmaxå°†æ•°å€¼è½¬æ¢ä¸ºæ¦‚ç‡åˆ†å¸ƒï¼Œä¸ä¼šå¯¹å…¶ç»´åº¦æœ‰ä»»ä½•å½±å“ï¼Œå¾—åˆ°pï¼Œéšåä¸v[seqlen, nheads, head_dimv]åšgemmã€‚
+    //    vé¦–å…ˆåŒæ ·ä¼šè½¬ä¸º[nheads, seqlen, head_dimv]ï¼Œå³p[nheads, seqlen, seqlen]*v[nheads, seqlen, head_dimv]=o2[nheads, seqlen, head_dimv].
+    //    å»æ‰nheadsï¼Œä»[seqlen, head_dimv]åˆ†ægemmï¼Œå¯ä»¥çœ‹åˆ°layoutçš„Må’ŒNåˆ†åˆ«å¯¹åº”seqlenå’Œhead_dimvï¼ŒKåˆ™æ˜¯è¢«æ¶ˆæ‰çš„seqlençš„ç»´åº¦ã€‚
+    //    æ‰€ä»¥è¿™æ¬¡gemmçš„TileShape_MNK_PVè®¾ç½®ä¸º[kBlockM, kHeadDimV, kBlockN]ï¼Œè€Œä¸æ˜¯[kBlockM, kBlockN, kHeadDimV]
     using TileShape_MNK = cute::Shape<Int<kBlockM>, Int<kBlockN>, Int<kHeadDim>>;
     using TileShape_MNK_PV = cute::Shape<Int<kBlockM>, Int<kHeadDimV>, Int<kBlockN>>;
     using ClusterShape = cute::Shape<Int<ClusterM>, _1, _1>;
@@ -85,7 +85,7 @@ void run_flash_fwd(Flash_fwd_params &params, cudaStream_t stream) {
         >
     >;
     using SchedulerSingleTile = flash::SingleTileScheduler<Varlen, Split, PackGQA, kBlockM>;
-    // <NT> ÊÇ·ñÊ¹ÓÃPersistentSchedulerÒ²ÊÇÆô·¢Ê½Ñ¡Ôñ, sm90ÒÔÉÏµÄSplitÎªFalse»òÕßÊÇVarlen£¬²ÅÓÃPersistentScheduler£¬·ñÔò¶¼ÓÃSchedulerSingleTile¡£
+    // <NT> æ˜¯å¦ä½¿ç”¨PersistentSchedulerä¹Ÿæ˜¯å¯å‘å¼é€‰æ‹©, sm90ä»¥ä¸Šçš„Splitä¸ºFalseæˆ–è€…æ˜¯Varlenï¼Œæ‰ç”¨PersistentSchedulerï¼Œå¦åˆ™éƒ½ç”¨SchedulerSingleTileã€‚
     // If Split then we probably don't have enough work for PersistentScheduler to be useful.
     // However, if Varlen (e.g., during decode where we have max_seqlens), using PersistentScheduler is better
     // since we'll avoid launching a bunch of thread blocks that immediately exit.
@@ -163,8 +163,8 @@ void run_flash_fwd(Flash_fwd_params &params, cudaStream_t stream) {
         params.cu_seqlens_q, params.seqused_q
     };
 
-    // <NT> PackGQAÎªtrueÊ±£¬ÄÚ´æÊÇÕı³£´æ·Å£¬¶à¸öqhead¶ÔÓ¦Ò»¸ökhead£¬Ê¹ÓÃË÷ÒıÀ´¶ÔÓ¦qheadºÍkvhead¡£
-    // ¶øPackGQAÎªfalseÊ±£¬khead»á¸´ÖÆºó´æ·Å£¬Ê¹qheadºÍkheadÒ»Ò»¶ÔÓ¦.
+    // <NT> PackGQAä¸ºtrueæ—¶ï¼Œå†…å­˜æ˜¯æ­£å¸¸å­˜æ”¾ï¼Œå¤šä¸ªqheadå¯¹åº”ä¸€ä¸ªkheadï¼Œä½¿ç”¨ç´¢å¼•æ¥å¯¹åº”qheadå’Œkvheadã€‚
+    // è€ŒPackGQAä¸ºfalseæ—¶ï¼Œkheadä¼šå¤åˆ¶åå­˜æ”¾ï¼Œä½¿qheadå’Œkheadä¸€ä¸€å¯¹åº”.
     int qhead_per_khead = !PackGQA ? 1 : cutlass::ceil_div(params.h, params.h_k);
     int num_blocks_m = cutlass::ceil_div(params.seqlen_q * qhead_per_khead, get<0>(TileShape_MNK{}));
     num_blocks_m = cutlass::round_up(num_blocks_m, size<0>(ClusterShape{}));
@@ -178,8 +178,8 @@ void run_flash_fwd(Flash_fwd_params &params, cudaStream_t stream) {
         params.num_splits_dynamic_ptr,
     };
 
-    // <NT> Õë¶Ô ¿É±ä³¤¶ÈĞòÁĞ µÄÊäÈë£¬ÔÚbatch_size·ûºÏÌõ¼şÏÂ£¬»á²ÉÓÃ¶¯Ì¬splitµÄ²ßÂÔ£¬ĞèÒª¼ÆËã »áÌî³äparams.num_splits_dynamic_ptr
-    // ÔÚ hopper/flash_api.cpp: mha_fwdº¯Êı ÀïÓĞ bool const use_dynamic_split = is_varlen && params.b <= 992; bÊÇbatch_size
+    // <NT> é’ˆå¯¹ å¯å˜é•¿åº¦åºåˆ— çš„è¾“å…¥ï¼Œåœ¨batch_sizeç¬¦åˆæ¡ä»¶ä¸‹ï¼Œä¼šé‡‡ç”¨åŠ¨æ€splitçš„ç­–ç•¥ï¼Œéœ€è¦è®¡ç®— ä¼šå¡«å……params.num_splits_dynamic_ptr
+    // åœ¨ hopper/flash_api.cpp: mha_fwdå‡½æ•° é‡Œæœ‰ bool const use_dynamic_split = is_varlen && params.b <= 992; bæ˜¯batch_size
     if (Varlen && params.num_splits_dynamic_ptr && !params.skip_scheduler_metadata_computation) {
         prepare_varlen_num_blocks(params, stream, PackGQA, kBlockM, kBlockN, Arch >= 90 /*enable_pdl*/);
         CHECK_CUDA_KERNEL_LAUNCH();
@@ -223,24 +223,24 @@ template<int Arch, typename T, int kHeadDim, int kHeadDimV, bool Split, bool Pag
 void run_mha_fwd_(Flash_fwd_params &params, cudaStream_t stream) {
     static_assert(sizeof(T) == 2 || sizeof(T) == 1, "Only 16bit and 8bit are supported");
     static constexpr bool Is_FP8 = cute::is_same_v<T, cutlass::float_e4m3_t> || cute::is_same_v<T, cutlass::float_e5m2_t>;
-    // Èç¹ûÊÇfp8£¬Êä³öÀàĞÍÈ¡bf16£»Èç¹ûÊÇfp16»òbf16£¬ÔòÊä³öÀàĞÍ¶ÔÓ¦È¡fp16»òbf16.
+    // å¦‚æœæ˜¯fp8ï¼Œè¾“å‡ºç±»å‹å–bf16ï¼›å¦‚æœæ˜¯fp16æˆ–bf16ï¼Œåˆ™è¾“å‡ºç±»å‹å¯¹åº”å–fp16æˆ–bf16.
     using T_out = std::conditional_t<!Is_FP8, T, cutlass::bfloat16_t>;
     CAUSAL_LOCAL_SWITCH(params.is_causal, params.is_local, Is_causal, Is_local, [&] {
-        // <NT> VCOLMAJOR_SWITCHÀïÃæÒ»°ãÎ´¶¨ÒåFLASHATTENTION_ENABLE_VCOLMAJOR£¬
-        // ³ı·Ç¶îÍâÉèÖÃ»·¾³±äÁ¿ export FLASH_ATTENTION_ENABLE_VCOLMAJOR=TRUE£¬
-        // ²»È»×ßÉÏ°ë¶Î£¬¼´»áĞ´ËÀCONST_NAME = false£¬ËùÒÔV_colmajor_Ò»Ö±Îªfalse¡£
+        // <NT> VCOLMAJOR_SWITCHé‡Œé¢ä¸€èˆ¬æœªå®šä¹‰FLASHATTENTION_ENABLE_VCOLMAJORï¼Œ
+        // é™¤éé¢å¤–è®¾ç½®ç¯å¢ƒå˜é‡ export FLASH_ATTENTION_ENABLE_VCOLMAJOR=TRUEï¼Œ
+        // ä¸ç„¶èµ°ä¸ŠåŠæ®µï¼Œå³ä¼šå†™æ­»CONST_NAME = falseï¼Œæ‰€ä»¥V_colmajor_ä¸€ç›´ä¸ºfalseã€‚
         VCOLMAJOR_SWITCH(params.v_dim_stride != 1, V_colmajor_, [&] {
             static constexpr bool V_colmajor = V_colmajor_ && sizeof(T) == 1;
             VARLEN_SWITCH(params.cu_seqlens_q || params.cu_seqlens_k || params.seqused_q || params.seqused_k || params.leftpad_k, Varlen, [&] {
                 // Only needed here to decide if we should use cluster
-                // <NT> ArchÎªsm8xµÄ£¬kBlockM±»Ğ´ËÀÎª128£¡
-                // Ê¹ÄÜclusterµÄÏŞÖÆÌõ¼şºÜ¶à£¬°üº¬Enable_clusterºÍÏÂÃæµÄUse_cluster£¬Ê¹ÓÃclusterÊ±£¬ClusterMÒ²½ö½öÎª2. ÆäËûÎ¬¶ÈµÄÊÇ1£¬ÔÚ×îÍâ²ãÊäÈëµÄÊ±ºòÒÑ¾­Ğ´ËÀ¡£
+                // <NT> Archä¸ºsm8xçš„ï¼ŒkBlockMè¢«å†™æ­»ä¸º128ï¼
+                // ä½¿èƒ½clusterçš„é™åˆ¶æ¡ä»¶å¾ˆå¤šï¼ŒåŒ…å«Enable_clusterå’Œä¸‹é¢çš„Use_clusterï¼Œä½¿ç”¨clusteræ—¶ï¼ŒClusterMä¹Ÿä»…ä»…ä¸º2. å…¶ä»–ç»´åº¦çš„æ˜¯1ï¼Œåœ¨æœ€å¤–å±‚è¾“å…¥çš„æ—¶å€™å·²ç»å†™æ­»ã€‚
                 static constexpr int kBlockM = Arch >= 90 ? std::get<0>(tile_size_fwd_sm90(kHeadDim, kHeadDimV, Is_causal, Is_local, sizeof(T) /*element_size*/, V_colmajor, PagedKVNonTMA, Has_softcap)) : 128;
                 static constexpr bool Enable_cluster = Arch == 90 && (sizeof(T) == 2 ? (kHeadDim >= 128) : (kHeadDim == 192)) && !Is_causal && !Is_local && !Split && !PagedKVNonTMA && !Varlen;
-                // <NT> qvÄ¿Ç°Ö»ÔÚmlaÖĞÓĞÊ¹ÓÃ£¬±íÊ¾q_nope. q´æ·ÅµÄÊÇq_rope, mha/gqa/mqaÖĞµÄqÒ²µÈ¼ÛÓÚq_rope, ´øÓĞÎ»ÖÃ±àÂë¡£
+                // <NT> qvç›®å‰åªåœ¨mlaä¸­æœ‰ä½¿ç”¨ï¼Œè¡¨ç¤ºq_nope. qå­˜æ”¾çš„æ˜¯q_rope, mha/gqa/mqaä¸­çš„qä¹Ÿç­‰ä»·äºq_rope, å¸¦æœ‰ä½ç½®ç¼–ç ã€‚
                 BOOL_SWITCH(params.qv_ptr, HasQV_, [&] {
                     static constexpr bool HasQv = HasQV_ && Arch == 90 && !Is_FP8 && kHeadDim == 64 && kHeadDimV >= 256;
-                    // <NT> sglangÖĞk_new_ºÍv_new_Îª¿Õ£¬AppendKV»áÒ»Ö±Îªfalse
+                    // <NT> sglangä¸­k_new_å’Œv_new_ä¸ºç©ºï¼ŒAppendKVä¼šä¸€ç›´ä¸ºfalse
                     APPENDKV_SWITCH(params.knew_ptr, AppendKV, [&] {
                         // Only use Cluster if number of tiles along seqlen_q is even and not varlen
                         CLUSTER_SWITCH(cutlass::ceil_div(params.seqlen_q * (!PackGQA ? 1 : params.h / params.h_k), kBlockM) % 2 == 0, Use_cluster, [&] {

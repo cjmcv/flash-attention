@@ -35,8 +35,8 @@ struct CollectiveMainloopFwdSm90 {
 
     static constexpr int kStages = Stages;
     using ClusterShape = ClusterShape_;
-    // <NT> TileShape_MNKÓÃÓÚq*kt=o1, TileShape_MNK_PVÓÃÓÚsoftmax(o1)*V
-    // <NT-TODO?> TileShape_MNK_QVÓÃÓÚqv*kt (ËùÒÔ²¼¾ÖµÈÍ¬ÓÚTileShape_MNK£¬mlaµÄq_nope×¨ÓÃ???)
+    // <NT> TileShape_MNKç”¨äºq*kt=o1, TileShape_MNK_PVç”¨äºsoftmax(o1)*V
+    // <NT-TODO?> TileShape_MNK_QVç”¨äºqv*kt (æ‰€ä»¥å¸ƒå±€ç­‰åŒäºTileShape_MNKï¼Œmlaçš„q_nopeä¸“ç”¨???)
     using TileShape_MNK = TileShape_MNK_;
     using TileShape_MNK_PV = Shape<decltype(get<0>(TileShape_MNK{})), Int<kHeadDimV>, decltype(get<1>(TileShape_MNK{}))>;
     using TileShape_MNK_QV = Shape<decltype(get<0>(TileShape_MNK{})), decltype(get<1>(TileShape_MNK{})), Int<kHeadDimV>>;
@@ -59,8 +59,8 @@ struct CollectiveMainloopFwdSm90 {
     static constexpr bool Use_TMA_KV = !PagedKVNonTMA;
     static_assert(Use_TMA_KV || CUTE_STATIC_V(size(ClusterShape{})) == 1, "If not using TMA for KV, ClusterShape must be 1");
     static_assert(Use_TMA_KV || !V_colmajor, "If not using TMA for KV, V_colmajor is not supported");
-    // <NT> SameHeadDimÖ¸qkvµÄhead_dim¶¼ÏàÍ¬(mha/gqa/mqa)
-    //      kHeadDimV´óÓÚ256»á³äµ±Ò»¸ö·Ö½çµã£¬»áÉæ¼°µ½ºÜ¶à×ÊÔ´·ÖÅä·½°¸£¬ÊÇ·ñÓ¦¸Ä³ÉÒ»¸ötuning²ÎÊı£¿
+    // <NT> SameHeadDimæŒ‡qkvçš„head_diméƒ½ç›¸åŒ(mha/gqa/mqa)
+    //      kHeadDimVå¤§äº256ä¼šå……å½“ä¸€ä¸ªåˆ†ç•Œç‚¹ï¼Œä¼šæ¶‰åŠåˆ°å¾ˆå¤šèµ„æºåˆ†é…æ–¹æ¡ˆï¼Œæ˜¯å¦åº”æ”¹æˆä¸€ä¸ªtuningå‚æ•°ï¼Ÿ
     static constexpr bool SameHeadDim = get<2>(TileShape_MNK{}) == kHeadDimV;
     static constexpr bool LargeHeadDimV = kHeadDimV > 256;
 
@@ -103,9 +103,9 @@ struct CollectiveMainloopFwdSm90 {
         AtomLayoutQK,
         Layout<Shape<_1, Int<kHeadDimV / 256>, _1>>
     >;
-    // <NT> rs_op_selectorºÍrs_op_selector ÊÇÓÃÓÚÑ¡ÔñMMA²Ù×÷µÄÁ½¸ö¹¤¾ß
-    // rs_op_selector ÓÃÓÚÅäÖÃµÚÒ»¸ö²Ù×÷Êı£¨Operand A£©´æ´¢ÔÚregµÄ³¡¾°£¬¼´µÚÒ»¸ö²Ù×÷ÊıĞèÒªÆµ·±¸üĞÂÇÒ²»ÊÊºÏ´æ´¢ÔÚ¹²ÏíÄÚ´æÖĞ
-    // ss_op_selector ÓÃÓÚÅäÖÃµÚÒ»¸ö²Ù×÷Êı£¨Operand A£©´æ´¢ÔÚsmemµÄ³¡¾°£¬¼´µÚÒ»¸ö²Ù×÷Êı¿ÉÒÔ´æ´¢ÔÚ¹²ÏíÄÚ´æÖĞÒÔÌá¸ß·ÃÎÊĞ§ÂÊµÄ³¡¾°
+    // <NT> rs_op_selectorå’Œrs_op_selector æ˜¯ç”¨äºé€‰æ‹©MMAæ“ä½œçš„ä¸¤ä¸ªå·¥å…·
+    // rs_op_selector ç”¨äºé…ç½®ç¬¬ä¸€ä¸ªæ“ä½œæ•°ï¼ˆOperand Aï¼‰å­˜å‚¨åœ¨regçš„åœºæ™¯ï¼Œå³ç¬¬ä¸€ä¸ªæ“ä½œæ•°éœ€è¦é¢‘ç¹æ›´æ–°ä¸”ä¸é€‚åˆå­˜å‚¨åœ¨å…±äº«å†…å­˜ä¸­
+    // ss_op_selector ç”¨äºé…ç½®ç¬¬ä¸€ä¸ªæ“ä½œæ•°ï¼ˆOperand Aï¼‰å­˜å‚¨åœ¨smemçš„åœºæ™¯ï¼Œå³ç¬¬ä¸€ä¸ªæ“ä½œæ•°å¯ä»¥å­˜å‚¨åœ¨å…±äº«å†…å­˜ä¸­ä»¥æé«˜è®¿é—®æ•ˆç‡çš„åœºæ™¯
     using TiledMmaPV = decltype(cute::make_tiled_mma(
         std::conditional_t<
             !MmaPV_is_RS,
@@ -281,7 +281,7 @@ struct CollectiveMainloopFwdSm90 {
         ClusterShape{}));
     using TMA_Qv = std::conditional_t<HasQv, TMA_Qv_, std::nullptr_t>;
 
-    // size(SmemLayoutQ{})µÃµ½µÄÊÇÔªËØ¸öÊı£¬sizeof_bits_v<Element>µÃµ½Ã¿¸öÔªËØÕ¼µÄbits£¬bits×ªBytesĞè³ıÒÔ8£¬TmaTransactionBytes±íÊ¾Ò»´Îtma´«ÊäµÄ×Ö½ÚÊı¡£
+    // size(SmemLayoutQ{})å¾—åˆ°çš„æ˜¯å…ƒç´ ä¸ªæ•°ï¼Œsizeof_bits_v<Element>å¾—åˆ°æ¯ä¸ªå…ƒç´ å çš„bitsï¼Œbitsè½¬Byteséœ€é™¤ä»¥8ï¼ŒTmaTransactionBytesè¡¨ç¤ºä¸€æ¬¡tmaä¼ è¾“çš„å­—èŠ‚æ•°ã€‚
     // Set the bytes transferred in this TMA transaction (may involve multiple issues)
     static constexpr uint32_t TmaTransactionBytesQ = static_cast<uint32_t>(size(SmemLayoutQ{}) * cutlass::sizeof_bits_v<Element> / 8);
     static constexpr uint32_t TmaTransactionBytesK = static_cast<uint32_t>(size(take<0, 2>(SmemLayoutK{})) * cutlass::sizeof_bits_v<Element> / 8);
@@ -1103,9 +1103,9 @@ struct CollectiveMainloopFwdSm90 {
         if constexpr (!AppendKV) {
             barrier_Q.wait(work_idx % 2);
         } else {
-            // <NT> Ğı×ªÎ»ÖÃ±àÂë²¿·Ö, sglangÖĞ»áÓĞRotaryEmbedding£¬ÕâÀï¿ÉÒÔ²»Ê¹ÓÃ
-            // ÈçĞèÊ¹ÓÃ£¬mmaÖĞÖ»¶ÔQ×ö´¦Àí£¬KµÄ´¦Àí·ÅÔÚÁËstore_kv_newÖĞ£¬
-            // ÈÏÎªÔÚkvcacheÀïµÄk¶¼ÊÇÒÑ¾­Ó¦ÓÃÁËĞı×ªÎ»ÖÃ±àÂëµÄÊı¾İ£¬ËùÒÔmmaÀïÖ»´¦ÀíQ.
+            // <NT> æ—‹è½¬ä½ç½®ç¼–ç éƒ¨åˆ†, sglangä¸­ä¼šæœ‰RotaryEmbeddingï¼Œè¿™é‡Œå¯ä»¥ä¸ä½¿ç”¨
+            // å¦‚éœ€ä½¿ç”¨ï¼Œmmaä¸­åªå¯¹Qåšå¤„ç†ï¼ŒKçš„å¤„ç†æ”¾åœ¨äº†store_kv_newä¸­ï¼Œ
+            // è®¤ä¸ºåœ¨kvcacheé‡Œçš„kéƒ½æ˜¯å·²ç»åº”ç”¨äº†æ—‹è½¬ä½ç½®ç¼–ç çš„æ•°æ®ï¼Œæ‰€ä»¥mmaé‡Œåªå¤„ç†Q.
             if (get<1>(params.shape_rotary) > 0) {  // Apply rotary to Q
                 using Rotary_t = Rotary<kBlockM, kHeadDim, NumMmaThreadsQK, Element, !(Is_causal || Is_local) /*FixedPosition*/>;
                 Rotary_t rotary(params.ptr_rotary_cos, params.shape_rotary, params.stride_rotary_cos,
@@ -1126,8 +1126,8 @@ struct CollectiveMainloopFwdSm90 {
                         rotary.template load_cos_sin<false /*kInterleaved*/>(m_block),
                         rotary.template load_cos_sin_packgqa<false /*kInterleaved*/>(m_block, params.qhead_per_khead_divmod)
                     );
-                    // <NT> barrier_Q¾ÍÖµÎªQµÄÍ¬²½¸ºÔğ£¬ÔÚloadºÍmma¶¼»á¶ÔÓ¦ÓÃµ½¡£
-                    // ÕâÀï½öµ÷ÓÃÁËapply_Q_contiguous£¬¶øapply_K_contiguousÔÚstore_kv_newÉÏ¡£
+                    // <NT> barrier_Qå°±å€¼ä¸ºQçš„åŒæ­¥è´Ÿè´£ï¼Œåœ¨loadå’Œmmaéƒ½ä¼šå¯¹åº”ç”¨åˆ°ã€‚
+                    // è¿™é‡Œä»…è°ƒç”¨äº†apply_Q_contiguousï¼Œè€Œapply_K_contiguousåœ¨store_kv_newä¸Šã€‚
                     barrier_Q.wait(work_idx % 2);
                     rotary.apply_Q_contiguous(sQ_pi, tRrCosCont, tRrSinCont, m_block, qhead_per_khead);
                 }
@@ -1390,7 +1390,7 @@ struct CollectiveMainloopFwdSm90 {
             if (n_block_max <= n_block_min) { return false; }
         }
 
-        // <NT> »ùÓÚshared_storageµÄ¶ÔÓ¦ÄÚ´æ¿é¹¹½¨¹²ÏíÄÚ´æµÄV/P/scale tensor¡£
+        // <NT> åŸºäºshared_storageçš„å¯¹åº”å†…å­˜å—æ„å»ºå…±äº«å†…å­˜çš„V/P/scale tensorã€‚
         Tensor sV = make_tensor(make_smem_ptr(shared_storage.tensors.mainloop.smem_v.data()), SmemLayoutVtMma{});
         Tensor sP = make_tensor(make_smem_ptr(shared_storage.tensors.mainloop.smem_p.data()), SmemLayoutP{});
         Tensor sScale = make_tensor(make_smem_ptr(shared_storage.tensors.mainloop.smem_scale.data()), SmemLayoutScale{});
@@ -1399,18 +1399,18 @@ struct CollectiveMainloopFwdSm90 {
                                                       make_stride(Int<cutlass::NumThreadsPerWarpGroup>{}));
 
         int warp_group_idx = __shfl_sync(0xFFFFFFFF, thread_idx / cutlass::NumThreadsPerWarpGroup, 0);
-        // <NT> ´ÓTileMMAÖĞÈ¡³öwgµÄmma£¬Í¨¹ıwarp_group_thread_layout½«warp_group_idx×ª»¯³Éthread id¡£
-        // »ùÓÚ¸Ãthread idÈ¡³ö·Ö¿é£¬¶ÔÓ¦µÄ¾ÍÊÇ¸Ãwarp groupµÄ·Ö¿é£¬È»ºóÀàĞÍÊÇThrMMA¡£
+        // <NT> ä»TileMMAä¸­å–å‡ºwgçš„mmaï¼Œé€šè¿‡warp_group_thread_layoutå°†warp_group_idxè½¬åŒ–æˆthread idã€‚
+        // åŸºäºè¯¥thread idå–å‡ºåˆ†å—ï¼Œå¯¹åº”çš„å°±æ˜¯è¯¥warp groupçš„åˆ†å—ï¼Œç„¶åç±»å‹æ˜¯ThrMMAã€‚
         TiledMmaPV tiled_mma_pv;
         auto wg_mma_pv = tiled_mma_pv.get_slice(warp_group_thread_layout(warp_group_idx));
 
-        // <NT> »ùÓÚshared memory Tensor ´´½¨ register Tensor
-        // P³äµ±A¾ØÕó£¬V³äµ±B¾ØÕó£¬ÏÂÃæĞèÒª¼ÆËã P/scale * V = O
+        // <NT> åŸºäºshared memory Tensor åˆ›å»º register Tensor
+        // På……å½“AçŸ©é˜µï¼ŒVå……å½“BçŸ©é˜µï¼Œä¸‹é¢éœ€è¦è®¡ç®— P/scale * V = O
         // Allocate "fragments/descriptors"
         Tensor tOrV = wg_mma_pv.partition_fragment_B(sV);
         Tensor tOsP = wg_mma_pv.partition_fragment_A(sP);
 
-        // <NT> ´ÓTileMMAÖĞÈ¡³öthread¶ÔÓ¦µÄmma·Ö¿é¡£
+        // <NT> ä»TileMMAä¸­å–å‡ºthreadå¯¹åº”çš„mmaåˆ†å—ã€‚
         // For load scales to smem, pretend thread_idx is thread_idx % 128
         auto thread_mma_pv = tiled_mma_pv.get_thread_slice(thread_idx % cutlass::NumThreadsPerWarpGroup);
         Tensor taccOcO = thread_mma_pv.partition_C(cute::make_identity_tensor(select<0, 1>(TileShape_MNK_PV{})));
